@@ -5,14 +5,14 @@ namespace W.TrayIcon.WPF.Native;
 
 public delegate void MouseClickEvent();
 
-public delegate nint LowLevelMouseProc(int nCode, nint wParam, nint lParam);
+public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
 /// <summary>
 /// Global Hook class for mouse events
 /// </summary>
 public class GlobalMouseHook
 {
-    private static nint _hookId = nint.Zero;
+    private static IntPtr _hookId = IntPtr.Zero;
 
     private static readonly LowLevelMouseProc _proc = HookCallback;
 
@@ -27,7 +27,7 @@ public class GlobalMouseHook
         remove => _onMouseClicked -= value;
     }
 
-    private static DateTime _lastTime = DateTime.Now;
+    private static DateTime? _lastTime;
 
     /// <summary>
     /// 
@@ -68,10 +68,13 @@ public class GlobalMouseHook
 
             if (_isMoving)
             {
-                if ((DateTime.Now - _lastTime).TotalMilliseconds > 50)
+                if (_lastTime.HasValue)
                 {
-                    _isMoving = false;
-                    //Debug.WriteLine("Move Stop");
+                    if ((DateTime.Now - _lastTime.Value).TotalMilliseconds > 50)
+                    {
+                        _isMoving = false;
+                        //Debug.WriteLine("Move Stop");
+                    }
                 }
             }
         }
@@ -84,10 +87,12 @@ public class GlobalMouseHook
 
         using ProcessModule curModule = curProcess.MainModule;
 
+        if(curModule.ModuleName == null) throw new Exception();
+
         return NativeMethods.SetWindowsHookEx(EWindowHooks.WH_MOUSE_LL, proc, NativeMethods.GetModuleHandle(curModule.ModuleName), 0);
     }
 
-    private static nint HookCallback(int nCode, nint wParam, nint lParam)
+    private static nint HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0)
         {

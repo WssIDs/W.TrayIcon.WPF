@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using W.TrayIcon.WPF.Helpers;
 using W.TrayIcon.WPF.Native;
 
 namespace W.TrayIcon.WPF;
@@ -20,7 +21,7 @@ namespace W.TrayIcon.WPF;
 public class TrayIconControl : Control
 {
     private CancellationTokenSource _cancellationTokenSource = new();
-    private nint _hWnd = nint.Zero;
+    private IntPtr _hWnd = IntPtr.Zero;
     private readonly DispatcherTimer _clickTimer = new();
 
     private Popup? _popup;
@@ -78,7 +79,7 @@ public class TrayIconControl : Control
             {
                 if (show)
                 {
-                    if (control.GetHandle() != nint.Zero)
+                    if (control.GetHandle() != IntPtr.Zero)
                     {
                         control.ShowIcon(control.GetHandle());
                     }
@@ -90,6 +91,19 @@ public class TrayIconControl : Control
             }
         }
     }
+
+
+
+    public ImageSource? Icon
+    {
+        get => (ImageSource?)GetValue(IconProperty);
+        set => SetValue(IconProperty, value);
+    }
+
+    // Using a DependencyProperty as the backing store for Icon.  This enables animation, styling, binding, etc...
+    public static readonly DependencyProperty IconProperty =
+        DependencyProperty.Register(nameof(Icon), typeof(ImageSource), typeof(TrayIconControl), new PropertyMetadata(null));
+
 
 
     public CornerRadius CornerRadius
@@ -226,9 +240,21 @@ public class TrayIconControl : Control
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref Data);
     }
 
-    private void ShowIcon(nint hWnd)
+    private void ShowIcon(IntPtr hWnd)
     {
-        var iconHandle = System.Drawing.SystemIcons.Application.Handle;
+        IntPtr iconHandle = IntPtr.Zero;
+
+        if (Icon != null)
+        {
+            var icon = IconHelper.GetIconFromImageSource(Icon, 32);
+            iconHandle = icon.Handle;
+        }
+        else
+        {
+            string exePath = Process.GetCurrentProcess().MainModule.FileName;
+            var icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+            iconHandle = icon.Handle;
+        }
 
         Data = new NOTIFYICONDATA
         {
@@ -236,7 +262,7 @@ public class TrayIconControl : Control
             cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
             hWnd = hWnd, // можно привязать к окну
             uID = 0,
-            uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_TIP | ETrayIconFlags.NIF_MESSAGE,
+            uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_MESSAGE,
             hIcon = iconHandle,
             //guidItem = _uniqueNumber,
             //szTip = ToolTip?.ToString() ?? string.Empty
@@ -255,7 +281,7 @@ public class TrayIconControl : Control
         source?.AddHook(WndProc);
     }
 
-    private nint WndProc(nint hwnd, int msg, nint wParam, nint lParam, ref bool handled)
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if ((EWindowMessages)msg == EWindowMessages.WM_USER + 1) // наш callback
         {
@@ -318,7 +344,7 @@ public class TrayIconControl : Control
             }
         }
 
-        return nint.Zero;
+        return IntPtr.Zero;
     }
 
     private void HandleSingleClick()
@@ -356,7 +382,7 @@ public class TrayIconControl : Control
                     hasToolTipMode = (ContextMenu == null || (ContextMenu != null && !ContextMenu.IsOpen));
                 });
 
-                if (_hWnd != nint.Zero)
+                if (_hWnd != IntPtr.Zero)
                 {
                     NOTIFYICONIDENTIFIER nii = new()
                     {
@@ -515,13 +541,18 @@ public class TrayIconControl : Control
     {
         FrameworkElement? element;
 
+        if (ToolTip == null)
+        {
+            ToolTip = GetWindow().Title;
+        }
+
         if (ToolTip is string tp)
         {
             element = new TextBlock
             {
                 Text = tp,
-                Background = Background,
-                Foreground = Foreground
+                //Background = Background,
+                //Foreground = Foreground
             };
         }
         else
@@ -553,13 +584,17 @@ public class TrayIconControl : Control
         };
     }
 
-    private Window GetWindow()
+    private Window? GetWindow()
     {
         return Window.GetWindow(this);
     }
 
     private nint GetHandle()
     {
+        var wnd = GetWindow();
+
+        if (wnd == null) return IntPtr.Zero;
+        
         return new WindowInteropHelper(GetWindow()).Handle;
     }
 }

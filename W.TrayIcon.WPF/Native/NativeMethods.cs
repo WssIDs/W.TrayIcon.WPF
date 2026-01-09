@@ -71,6 +71,19 @@ public struct NOTIFYICONDATA
 
 public static class NativeMethods
 {
+    [DllImport(ImportLibNames.User32, CharSet = CharSet.Auto)]
+    public extern static bool DestroyIcon(IntPtr handle);
+
+    public static System.Drawing.Icon GetIconFromHandle(IntPtr hIcon)
+    {
+        System.Drawing.Icon icon = System.Drawing.Icon.FromHandle(hIcon);
+        // Клонируем, чтобы освободить оригинальный handle
+        System.Drawing.Icon clone = (System.Drawing.Icon)icon.Clone();
+        DestroyIcon(hIcon);
+        return clone;
+    }
+
+
     [DllImport(ImportLibNames.User32)]
     public static extern bool GetCursorPos(out POINT lpPoint);
 
@@ -128,7 +141,7 @@ public static class NativeThemeColorsMethods
 
     [DllImport(ImportLibNames.User32)]
     private static extern int GetSysColor(int nIndex);
-    
+
     const int COLOR_WINDOW = 5;
 
     public static Color GetWindowColor()
@@ -139,8 +152,8 @@ public static class NativeThemeColorsMethods
 
     public static Color GetTooltipBackground()
     {
-        var hTheme = OpenThemeData(nint.Zero, "Window");
-        if (hTheme != nint.Zero)
+        var hTheme = OpenThemeData(IntPtr.Zero, "Window");
+        if (hTheme != IntPtr.Zero)
         {
             if (GetThemeColor(hTheme, WP_CAPTION, CS_ACTIVE, TMT_FILLCOLOR, out int argb) == 0)
             {
@@ -154,8 +167,8 @@ public static class NativeThemeColorsMethods
 
     public static Color GetTooltipText()
     {
-        nint hTheme = OpenThemeData(nint.Zero, "Tooltip");
-        if (hTheme != nint.Zero)
+        nint hTheme = OpenThemeData(IntPtr.Zero, "Tooltip");
+        if (hTheme != IntPtr.Zero)
         {
             int argb;
             if (GetThemeColor(hTheme, TTP_STANDARD, TTS_NORMAL, TMT_TEXTCOLOR, out argb) == 0)
