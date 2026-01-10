@@ -20,7 +20,10 @@
 		<AssemblyVersion>1.0.0.1</AssemblyVersion>
 		<Version>1.0.0.1</Version>
 		<ProductVersion>1.0.0.1</ProductVersion>
-		<SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+		<Authors>WssIDs</Authors>
+		<Company>WssIDs</Company>
+		<PackageIcon>wTrayIcon_sm.png</PackageIcon>
+		<ApplicationIcon>wTrayIcon.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -32,6 +35,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Content Include="wTrayIcon.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<None Include="..\LICENSE.txt">
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
@@ -40,14 +47,22 @@
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
 		</None>
+		<None Include="C:\Users\wssid\Downloads\wTrayIcon_sm.png">
+		  <Pack>True</Pack>
+		  <PackagePath>\</PackagePath>
+		</None>
 	</ItemGroup>
 
 	<ItemGroup>
 		<!-- Для net6.0 нужен пакет -->
 		<PackageReference Include="System.Drawing.Common" Version="8.0.22" Condition="'$(TargetFramework)' == 'net6.0-windows'" />
-		<PackageReference Include="System.Drawing.Common" Version="10.0.1" Condition="'$(TargetFramework)' == 'net7.0-windows'" />
+		<PackageReference Include="System.Drawing.Common" Version="8.0.22" Condition="'$(TargetFramework)' == 'net7.0-windows'" />
 		<PackageReference Include="System.Drawing.Common" Version="10.0.1" Condition="'$(TargetFramework)' == 'net8.0-windows'" />
 		<PackageReference Include="System.Drawing.Common" Version="10.0.1" Condition="'$(TargetFramework)' == 'net9.0-windows'" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Properties\" />
 	</ItemGroup>
 
 </Project>

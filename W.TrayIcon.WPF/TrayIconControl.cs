@@ -251,9 +251,22 @@ public class TrayIconControl : Control
         }
         else
         {
-            string exePath = Process.GetCurrentProcess().MainModule.FileName;
-            var icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
-            iconHandle = icon.Handle;
+            var module = Process.GetCurrentProcess().MainModule;
+
+            if(module != null)
+            { 
+                var exePath = module.FileName;
+
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    var icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+
+                    if (icon != null)
+                    {
+                        iconHandle = icon.Handle;
+                    }
+                }
+            }
         }
 
         Data = new NOTIFYICONDATA
@@ -543,7 +556,7 @@ public class TrayIconControl : Control
 
         if (ToolTip == null)
         {
-            ToolTip = GetWindow().Title;
+            ToolTip = GetWindow()?.Title;
         }
 
         if (ToolTip is string tp)
@@ -557,7 +570,7 @@ public class TrayIconControl : Control
         }
         else
         {
-            element = (FrameworkElement)ToolTip;
+            element = (FrameworkElement?)ToolTip;
         }
 
         var border = new Border
