@@ -1,22 +1,54 @@
-﻿using System.Text;
+﻿using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-namespace W.TrayIcon.WPF.Sample
-{
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
-    public partial class MainWindow : Window
-    {
-        public MainWindow()
-        {
-            DataContext = this;
-            InitializeComponent();
-        }
 
-        public string Test { get; set; } = "Тестовое окно";
+namespace W.TrayIcon.WPF.Sample;
+
+/// <summary>
+/// Interaction logic for MainWindow.xaml
+/// </summary>
+public partial class MainWindow : Window, INotifyPropertyChanged
+{
+    public MainWindow()
+    {
+        Loaded += MainWindow_Loaded;
+        InitializeComponent();
+
+        DataContext = this;
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        int i = 0;
+
+        await Task.Run(async () =>
+        {
+            while (true)
+            {
+                Test = $"Test Window {i}";
+
+                await Task.Delay(1000);
+                i++;
+            }
+        });
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private string _test = "Test Window";
+
+    public string Test
+    {
+        get => _test;
+        set
+        {
+            _test = value;
+            OnPropertyChanged();
+        }
     }
 }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -47,12 +48,14 @@ public class TrayIconControl : Control
         };
     }
 
+    private HwndSource? _source = null;
+
     private void OnInitialized(object? sender, EventArgs e)
     {
         if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
         {
             // создаём скрытое окно‑хост
-            HwndSource source = new HwndSource(new HwndSourceParameters("HiddenHost")
+            _source = new HwndSource(new HwndSourceParameters("HiddenHost")
             {
                 WindowStyle = 0x800000, // WS_OVERLAPPED
                 Width = 0,
@@ -61,11 +64,18 @@ public class TrayIconControl : Control
                 PositionY = 0
             });
             
-            _hWnd = source.Handle;
+            _hWnd = _source.Handle;
+
+            var wnd = GetWindow();
+            DataContext = wnd?.DataContext;
+
+            if (wnd != null)
+            {
+                wnd.DataContextChanged += Window_DataContextChanged;
+            }
 
             var root = new FrameworkElement();
-            root.DataContext = GetWindow()?.DataContext;
-            source.RootVisual = root;
+            _source.RootVisual = root;
 
             if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
             {
@@ -88,6 +98,19 @@ public class TrayIconControl : Control
 
                     ShowIcon(_hWnd);
                 }
+            }
+        }
+    }
+
+    private void Window_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_source != null)
+        {
+            if (_source.RootVisual is FrameworkElement element)
+            {
+                DataContext = GetWindow()?.DataContext;
+                element.DataContext = DataContext;
+                InitPopup();
             }
         }
     }
@@ -247,6 +270,13 @@ public class TrayIconControl : Control
         if (_hWnd != IntPtr.Zero)
         {
             NativeMethods.DestroyWindow(_hWnd);
+        }
+
+        var wnd = GetWindow();
+
+        if (wnd != null)
+        {
+            wnd.DataContextChanged -= Window_DataContextChanged;
         }
     }
 
@@ -440,7 +470,7 @@ public class TrayIconControl : Control
                             if (_popup != null)
                             {
                                 _popup.HorizontalOffset = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) - ((FrameworkElement)_popup.Child).ActualWidth / 2;
-                                _popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)_popup.Child).ActualHeight - 15;
+                                _popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)_popup.Child).ActualHeight - 12;
                             }
                         });
 
@@ -518,6 +548,10 @@ public class TrayIconControl : Control
                         continue;
                     }
                 }
+                else
+                {
+                    OnTrayMouseLeave();
+                }
 
                 await Task.Delay(100);
             }
@@ -575,27 +609,49 @@ public class TrayIconControl : Control
     {
         FrameworkElement? element;
 
+        if (ToolTip is string tp)
+        {
+            var binding = BindingOperations.GetBinding(this, ToolTipProperty);
+            if (binding != null)
+            {
+                Debug.WriteLine("Есть биндинг на ToolTipProperty");
+
+                var tb = new TextBlock
+                {
+                    DataContext = DataContext
+                };
+
+                tb.SetBinding(TextBlock.TextProperty, binding);
+
+                element = tb;
+            }
+            else
+            {
+                Debug.WriteLine("Биндинга нет");
+                element = new TextBlock
+                {
+                    Text = tp
+                };
+            }
+        }
+        else
+        {
+            element = (FrameworkElement?)ToolTip;
+
+            if (element != null)
+            {
+                element.DataContext = DataContext;
+            }
+        }
+
         if (ToolTip == null)
         {
             ToolTip = GetWindow()?.Title;
         }
 
-        if (ToolTip is string tp)
-        {
-            element = new TextBlock
-            {
-                Text = tp,
-                //Background = Background,
-                //Foreground = Foreground
-            };
-        }
-        else
-        {
-            element = (FrameworkElement?)ToolTip;
-        }
-
         var border = new Border
         {
+            DataContext = DataContext,
             CornerRadius = CornerRadius,
             //BorderThickness = ,
             //BorderBrush = ,
@@ -608,10 +664,11 @@ public class TrayIconControl : Control
 
         _popup = new Popup
         {
+            DataContext = DataContext,
             Placement = PlacementMode.AbsolutePoint,
             HorizontalOffset = IconPosition.Left,
             VerticalOffset = IconPosition.Top,
-            StaysOpen = false,
+            StaysOpen = true,
             Opacity = 100,
             PopupAnimation = PopupAnimation.Fade,
             AllowsTransparency = true,
@@ -626,10 +683,6 @@ public class TrayIconControl : Control
 
     private nint GetHandle()
     {
-        //var wnd = GetWindow();
-
-        //if (wnd == null) return IntPtr.Zero;
-        
         return _hWnd;
     }
 }
