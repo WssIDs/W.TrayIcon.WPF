@@ -4,11 +4,6 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-
 namespace W.TrayIcon.WPF.Sample
 {
     /// <summary>
@@ -18,7 +13,10 @@ namespace W.TrayIcon.WPF.Sample
     {
         public MainWindow()
         {
+            DataContext = this;
             InitializeComponent();
         }
+
+        public string Test { get; set; } = "Тестовое окно";
     }
 }

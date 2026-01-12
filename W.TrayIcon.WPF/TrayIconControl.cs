@@ -63,6 +63,10 @@ public class TrayIconControl : Control
             
             _hWnd = source.Handle;
 
+            var root = new FrameworkElement();
+            root.DataContext = GetWindow()?.DataContext;
+            source.RootVisual = root;
+
             if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
             {
                 SystemEvents.UserPreferenceChanged += (s, e) =>

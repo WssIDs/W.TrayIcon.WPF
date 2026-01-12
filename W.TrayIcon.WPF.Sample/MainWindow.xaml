@@ -8,6 +8,6 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <w:TrayIconControl IsShow="True" Icon="/Icon128.png"/>
+        <w:TrayIconControl IsShow="True" Icon="/Icon128.png" ToolTip="{Binding Test}"/>
     </Grid>
 </Window>
