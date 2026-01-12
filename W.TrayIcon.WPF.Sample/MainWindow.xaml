@@ -5,13 +5,19 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:W.TrayIcon.WPF.Sample" 
         xmlns:w="http://schemas.wssids.com/wpf/w/trayicon"
+        d:DataContext="{d:DesignInstance local:MainWindow, IsDesignTimeCreatable=False}"
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <w:TrayIconControl IsShow="True" Icon="/Icon128.png" ToolTip="{Binding Test,UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}">
+        <w:TrayIconControl IsShow="True" Icon="/Icon128.png">
+            <w:TrayIconControl.ToolTip>
+                <Grid>
+                    <TextBlock Text="{Binding Test,UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"/>
+                </Grid>
+            </w:TrayIconControl.ToolTip>
             <w:TrayIconControl.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="вавпав"/>
+                    <MenuItem Header="Test Click" Click="MenuItem_Click"/>
                 </ContextMenu>
             </w:TrayIconControl.ContextMenu>    
         </w:TrayIconControl>

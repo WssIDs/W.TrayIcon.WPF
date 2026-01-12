@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows;
 
@@ -19,6 +20,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        DataContext = this;
+
         int i = 0;
 
         await Task.Run(async () =>
@@ -50,5 +53,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _test = value;
             OnPropertyChanged();
         }
+    }
+
+    private void MenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        Debug.WriteLine("Test");
     }
 }

@@ -22,10 +22,17 @@ namespace W.TrayIcon.WPF;
 public class TrayIconControl : Control
 {
     private CancellationTokenSource _cancellationTokenSource = new();
+
     private IntPtr _hWnd = IntPtr.Zero;
+
     private readonly DispatcherTimer _clickTimer = new();
 
+    private HwndSource? _source = null;
+
     private Popup? _popup;
+    private Border? _wrapper = null;
+
+    private bool _isPopupInitialized = false;
     private bool _isHovering = false;
 
     protected NOTIFYICONDATA Data;
@@ -48,7 +55,43 @@ public class TrayIconControl : Control
         };
     }
 
-    private HwndSource? _source = null;
+    /// <summary>
+    /// Hovering mouse inside tray icon
+    /// </summary>
+    /// <returns></returns>
+    public bool IsHovering() => _isHovering;
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="isHovering"></param>
+    public void SetIsHovering(bool isHovering) => _isHovering = isHovering;
+
+    /// <summary>
+    /// Initialized popup?
+    /// </summary>
+    /// <returns></returns>
+    public bool IsPopupInitialized() => _isPopupInitialized;
+
+    /// <summary>
+    /// Get instance tooltip popup
+    /// </summary>
+    /// <returns></returns>
+    public Popup? GetPopup() => _popup;
+
+    /// <summary>
+    /// Set instance tooltip popup
+    /// </summary>
+    /// <returns></returns>
+    public void SetPopup(Popup popup) => _popup = popup;
+
+    /// <summary>
+    /// Set main wrapper tooltip 
+    /// </summary>
+    /// <returns></returns>
+    public Border? GetWrapper() => _wrapper;
+
+    public void SetWrapper(Border? wrapper) => _wrapper = wrapper;
 
     private void OnInitialized(object? sender, EventArgs e)
     {
@@ -63,7 +106,7 @@ public class TrayIconControl : Control
                 PositionX = 0,
                 PositionY = 0
             });
-            
+
             _hWnd = _source.Handle;
 
             var wnd = GetWindow();
@@ -95,7 +138,6 @@ public class TrayIconControl : Control
 
                 if (IsShow)
                 {
-
                     ShowIcon(_hWnd);
                 }
             }
@@ -115,16 +157,10 @@ public class TrayIconControl : Control
         }
     }
 
-    ///// <summary>
-    ///// Запущена ли задача проверки позиции мыши
-    ///// </summary>
-    //private bool _taskRunning = false;
-
     /// <summary>
     /// 
     /// </summary>
     protected RECT IconPosition { get; set; }
-
 
     /// <summary>
     /// Скрыть или показать трей иконку
@@ -139,9 +175,14 @@ public class TrayIconControl : Control
     public static readonly DependencyProperty IsShowProperty =
         DependencyProperty.Register(nameof(IsShow), typeof(bool), typeof(TrayIconControl), new PropertyMetadata(false, OnIsShowChanged));
 
-    private static void OnIsShowChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="d"></param>
+    /// <param name="e"></param>
+    private static void OnIsShowChanged(DependencyObject dp, DependencyPropertyChangedEventArgs e)
     {
-        if (d is TrayIconControl control)
+        if (dp is TrayIconControl control)
         {
             if (e.NewValue is bool show)
             {
@@ -161,7 +202,6 @@ public class TrayIconControl : Control
     }
 
 
-
     public ImageSource? Icon
     {
         get => (ImageSource?)GetValue(IconProperty);
@@ -171,8 +211,6 @@ public class TrayIconControl : Control
     // Using a DependencyProperty as the backing store for Icon.  This enables animation, styling, binding, etc...
     public static readonly DependencyProperty IconProperty =
         DependencyProperty.Register(nameof(Icon), typeof(ImageSource), typeof(TrayIconControl), new PropertyMetadata(null));
-
-
 
     public CornerRadius CornerRadius
     {
@@ -231,12 +269,15 @@ public class TrayIconControl : Control
 
     private void GlobalMouseHook_OnMouseClicked()
     {
-        if (!_isHovering)
+        if (!IsHovering())
         {
             HideContextMenu();
         }
     }
 
+    /// <summary>
+    /// Change color theme background and foreground tooltip
+    /// </summary>
     private void ChangeColors()
     {
         bool isDark = IsDarkTheme();
@@ -252,13 +293,12 @@ public class TrayIconControl : Control
         Background = new SolidColorBrush(bg);
         Foreground = new SolidColorBrush(fg);
 
-        if (_popup != null)
+        var wrapper = GetWrapper();
+
+        if (wrapper != null)
         {
-            if (_popup.Child is Border border)
-            {
-                border.Background = Background;
-                border.SetValue(TextElement.ForegroundProperty, Foreground);
-            }
+            wrapper.Background = Background;
+            wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
         }
     }
 
@@ -295,6 +335,10 @@ public class TrayIconControl : Control
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref Data);
     }
 
+    /// <summary>
+    /// Add icon to the system tray (Taskbar)
+    /// </summary>
+    /// <param name="hWnd"></param>
     private void ShowIcon(IntPtr hWnd)
     {
         IntPtr iconHandle = IntPtr.Zero;
@@ -308,8 +352,8 @@ public class TrayIconControl : Control
         {
             var module = Process.GetCurrentProcess().MainModule;
 
-            if(module != null)
-            { 
+            if (module != null)
+            {
                 var exePath = module.FileName;
 
                 if (!string.IsNullOrEmpty(exePath))
@@ -328,20 +372,19 @@ public class TrayIconControl : Control
         {
             uCallbackMessage = (int)EWindowMessages.WM_USER + 1,
             cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-            hWnd = hWnd, // можно привязать к окну
+            hWnd = hWnd,
             uID = 0,
             uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_MESSAGE,
-            hIcon = iconHandle,
-            //guidItem = _uniqueNumber,
-            //szTip = ToolTip?.ToString() ?? string.Empty
+            hIcon = iconHandle
         };
+
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref Data);
 
         GlobalMouseHook.Start();
         GlobalMouseHook.OnMouseClicked += GlobalMouseHook_OnMouseClicked;
 
         _cancellationTokenSource = new CancellationTokenSource();
-        _ = Task.Factory.StartNew(CheckMouseMove, TaskCreationOptions.LongRunning);
+        var checkMouseMoveTask = Task.Factory.StartNew(CheckMouseMove, cancellationToken: _cancellationTokenSource.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         _hWnd = GetHandle();
 
@@ -358,22 +401,19 @@ public class TrayIconControl : Control
             switch (windowMessage)
             {
                 case EWindowMessages.WM_MOUSEMOVE:
-                    //Debug.WriteLine("TrayIcon MouseMove");
 
                     if (ContextMenu == null || (ContextMenu != null && !ContextMenu.IsOpen))
                     {
-                        if (!_isHovering)
+                        if (!IsHovering())
                         {
-                            _isHovering = true;
+                            SetIsHovering(true);
                         }
                     }
                     else
                     {
-                        //_isHovering = false;
-                        OnTrayMouseLeave();
+                        _ = OnTrayMouseLeave();
                     }
 
-                    //OnTrayMouseEnter();
                     break;
                 case EWindowMessages.WM_RBUTTONUP:
                     break;
@@ -383,7 +423,7 @@ public class TrayIconControl : Control
                         ContextMenu.IsOpen = false;
                         if (ContextMenu?.IsOpen == false)
                         {
-                            OnTrayMouseLeave();
+                            _ = OnTrayMouseLeave();
 
                             ContextMenu.IsOpen = true;
                         }
@@ -422,15 +462,15 @@ public class TrayIconControl : Control
         LeftClickCommand?.Execute(null);
     }
 
-    private void HideContextMenu()
+    private async void HideContextMenu()
     {
-        Dispatcher.Invoke(() =>
+        await Dispatcher.Invoke(async () =>
         {
             if (ContextMenu != null)
             {
-                // закрыть меню, если оно открыто
                 if (ContextMenu?.IsOpen == true)
                 {
+                    await Task.Delay(1000);
                     ContextMenu.IsOpen = false;
                 }
             }
@@ -441,7 +481,7 @@ public class TrayIconControl : Control
     {
         try
         {
-            while (!_cancellationTokenSource.IsCancellationRequested)
+            while (!_cancellationTokenSource.Token.IsCancellationRequested)
             {
                 var hasToolTipMode = false;
 
@@ -467,54 +507,27 @@ public class TrayIconControl : Control
                     {
                         await Dispatcher.BeginInvoke(() =>
                         {
-                            if (_popup != null)
+                            var popup = GetPopup();
+
+                            if (popup != null && IsPopupInitialized())
                             {
-                                _popup.HorizontalOffset = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) - ((FrameworkElement)_popup.Child).ActualWidth / 2;
-                                _popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)_popup.Child).ActualHeight - 12;
+                                popup.HorizontalOffset = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) - ((FrameworkElement)popup.Child).ActualWidth / 2;
+                                popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)popup.Child).ActualHeight - 12;
                             }
                         });
 
-                        if (_isHovering)
+                        if (IsHovering())
                         {
                             if (!IsInnerTaskIcon())
                             {
-                                //OnTrayMouseLeave();
-                                _isHovering = false;
-                                //continue;
+                                SetIsHovering(false);
                             }
-                            //else
-                            //{
-                            //    //Debug.WriteLine("Mouse on TaskIcon -------------------------------------------------------------------");
-                            //    //OnTrayMouseEnter();
-                            //    //continue;
-                            //    //_isHovering = true;
-                            //}
 
                         }
-                        //else
-                        //{
-                        //    //OnTrayMouseLeave();
-                        //    //_isHovering = false;
-
-                        //    //await Dispatcher.BeginInvoke(() =>
-                        //    //{
-                        //    //    if (ContextMenu != null)
-                        //    //    {
-                        //    //        // закрыть меню, если оно открыто
-                        //    //        if (ContextMenu?.IsOpen == true)
-                        //    //        {
-                        //    //            ContextMenu.IsOpen = false;
-                        //    //        }
-                        //    //    }
-                        //    //});
-
-                        //    //continue;
-                        //}
                     }
                     else
                     {
-                        //Debug.WriteLine($"Ошибка: HRESULT = 0x{hr:X}");
-                        _isHovering = false;
+                        SetIsHovering(false);
                         continue;
                     }
                 }
@@ -522,27 +535,22 @@ public class TrayIconControl : Control
 
                 if (hasToolTipMode)
                 {
-                    if (_isHovering)
+                    if (IsHovering())
                     {
                         if (IsInnerTaskIcon())
                         {
-                            //Debug.WriteLine("Mouse on TaskIcon -------------------------------------------------------------------");
-                            OnTrayMouseEnter();
+                            await OnTrayMouseEnter();
                             continue;
-                            //_isHovering = true;
                         }
                         else
                         {
-                            OnTrayMouseLeave();
-                            //_isHovering = false;
+                            await OnTrayMouseLeave();
                             continue;
                         }
                     }
                     else
                     {
-                        OnTrayMouseLeave();
-                        //_isHovering = false;
-
+                        await OnTrayMouseLeave();
                         HideContextMenu();
 
                         continue;
@@ -550,7 +558,7 @@ public class TrayIconControl : Control
                 }
                 else
                 {
-                    OnTrayMouseLeave();
+                    await OnTrayMouseLeave();
                 }
 
                 await Task.Delay(100);
@@ -571,35 +579,35 @@ public class TrayIconControl : Control
                             GlobalMouseHook.MousePosition.y <= IconPosition.Bottom;
     }
 
-    private async void OnTrayMouseEnter()
+    private async Task OnTrayMouseEnter()
     {
-        await Task.Delay(150);
-
-        Dispatcher.Invoke(() =>
+        await Dispatcher.InvokeAsync(async () =>
         {
-            // показать Popup
+            var popup = GetPopup();
 
-            if (_popup != null)
+            if (popup != null)
             {
-                if (!_popup.IsOpen)
+                if (!popup.IsOpen)
                 {
-                    _popup.IsOpen = true;
+                    await Task.Delay(250);
+                    popup.IsOpen = true;
                 }
             }
         });
     }
 
-    private async void OnTrayMouseLeave()
+    private async Task OnTrayMouseLeave()
     {
-        await Task.Delay(150);
-
-        Dispatcher.Invoke(() =>
+        await Dispatcher.InvokeAsync(async () =>
         {
-            if (_popup != null)
+            var popup = GetPopup();
+
+            if (popup != null)
             {
-                if (_popup.IsOpen)
+                if (popup.IsOpen)
                 {
-                    _popup.IsOpen = false;
+                    await Task.Delay(250);
+                    popup.IsOpen = false;
                 }
             }
         });
@@ -607,30 +615,40 @@ public class TrayIconControl : Control
 
     private void InitPopup()
     {
+        _isPopupInitialized = false;
+
+        var popup = GetPopup();
+
+        if (popup != null)
+        {
+            popup.Child = null;
+        }
+
         FrameworkElement? element;
 
-        if (ToolTip is string tp)
+        if (ToolTip is string toolTip)
         {
             var binding = BindingOperations.GetBinding(this, ToolTipProperty);
             if (binding != null)
             {
-                Debug.WriteLine("Есть биндинг на ToolTipProperty");
+                Debug.WriteLine("Found binding ToolTipProperty");
 
-                var tb = new TextBlock
+                var textBox = new TextBlock
                 {
                     DataContext = DataContext
                 };
 
-                tb.SetBinding(TextBlock.TextProperty, binding);
+                textBox.SetBinding(TextBlock.TextProperty, binding);
 
-                element = tb;
+                element = textBox;
             }
             else
             {
-                Debug.WriteLine("Биндинга нет");
+                Debug.WriteLine("Binding not found");
+
                 element = new TextBlock
                 {
-                    Text = tp
+                    Text = toolTip
                 };
             }
         }
@@ -649,7 +667,15 @@ public class TrayIconControl : Control
             ToolTip = GetWindow()?.Title;
         }
 
-        var border = new Border
+        var wrapper = GetWrapper();
+
+        if (wrapper != null)
+        {
+            wrapper.Child = null;
+            wrapper = null;
+        }
+
+        wrapper = new Border
         {
             DataContext = DataContext,
             CornerRadius = CornerRadius,
@@ -660,9 +686,11 @@ public class TrayIconControl : Control
             Child = element
         };
 
-        border.SetValue(TextElement.ForegroundProperty, Foreground);
+        wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
 
-        _popup = new Popup
+        SetWrapper(wrapper);
+
+        popup = new Popup
         {
             DataContext = DataContext,
             Placement = PlacementMode.AbsolutePoint,
@@ -672,8 +700,17 @@ public class TrayIconControl : Control
             Opacity = 100,
             PopupAnimation = PopupAnimation.Fade,
             AllowsTransparency = true,
-            Child = border
+            Child = GetWrapper()
         };
+
+        SetPopup(popup);
+
+        if (ContextMenu != null)
+        {
+            ContextMenu.DataContext = DataContext;
+        }
+
+        _isPopupInitialized = true;
     }
 
     private Window? GetWindow()
