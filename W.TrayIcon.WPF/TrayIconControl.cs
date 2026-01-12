@@ -31,7 +31,7 @@ public class TrayIconControl : Control
 
     public TrayIconControl()
     {
-        Loaded += OnLoaded;
+        Initialized += OnInitialized;
         Unloaded += OnUnloaded;
 
 
@@ -45,6 +45,47 @@ public class TrayIconControl : Control
             _clickTimer.Stop();
             HandleSingleClick();
         };
+    }
+
+    private void OnInitialized(object? sender, EventArgs e)
+    {
+        if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
+        {
+            // создаём скрытое окно‑хост
+            HwndSource source = new HwndSource(new HwndSourceParameters("HiddenHost")
+            {
+                WindowStyle = 0x800000, // WS_OVERLAPPED
+                Width = 0,
+                Height = 0,
+                PositionX = 0,
+                PositionY = 0
+            });
+            
+            _hWnd = source.Handle;
+
+            if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
+            {
+                SystemEvents.UserPreferenceChanged += (s, e) =>
+                {
+                    if (e.Category == UserPreferenceCategory.General ||
+                        e.Category == UserPreferenceCategory.Color)
+                    {
+                        ChangeColors();
+                    }
+                };
+
+                InitPopup();
+                ChangeColors();
+
+                _hWnd = GetHandle();
+
+                if (IsShow)
+                {
+
+                    ShowIcon(_hWnd);
+                }
+            }
+        }
     }
 
     ///// <summary>
@@ -169,32 +210,6 @@ public class TrayIconControl : Control
         }
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        if (!DesignerProperties.GetIsInDesignMode(new DependencyObject()))
-        {
-            SystemEvents.UserPreferenceChanged += (s, e) =>
-            {
-                if (e.Category == UserPreferenceCategory.General ||
-                    e.Category == UserPreferenceCategory.Color)
-                {
-                    ChangeColors();
-                }
-            };
-
-            InitPopup();
-            ChangeColors();
-
-            _hWnd = GetHandle();
-
-            if (IsShow)
-            {
-                
-                ShowIcon(_hWnd);
-            }
-        }
-    }
-
     private void ChangeColors()
     {
         bool isDark = IsDarkTheme();
@@ -223,6 +238,12 @@ public class TrayIconControl : Control
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         HideIcon();
+        Initialized -= OnInitialized;
+
+        if (_hWnd != IntPtr.Zero)
+        {
+            NativeMethods.DestroyWindow(_hWnd);
+        }
     }
 
     private void HideIcon()
@@ -415,7 +436,7 @@ public class TrayIconControl : Control
                             if (_popup != null)
                             {
                                 _popup.HorizontalOffset = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) - ((FrameworkElement)_popup.Child).ActualWidth / 2;
-                                _popup.VerticalOffset = IconPosition.Top - 50;
+                                _popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)_popup.Child).ActualHeight - 15;
                             }
                         });
 
@@ -514,7 +535,9 @@ public class TrayIconControl : Control
 
     private async void OnTrayMouseEnter()
     {
-        await Dispatcher.BeginInvoke(async () =>
+        await Task.Delay(150);
+
+        Dispatcher.Invoke(() =>
         {
             // показать Popup
 
@@ -523,27 +546,21 @@ public class TrayIconControl : Control
                 if (!_popup.IsOpen)
                 {
                     _popup.IsOpen = true;
-                    _popup.IsOpen = false;
-                    _popup.Opacity = 0;
-
-                    await Task.Delay(500);
-                    _popup.Opacity = 100;
-                    _popup.IsOpen = true;
                 }
             }
         });
     }
 
-    private void OnTrayMouseLeave()
+    private async void OnTrayMouseLeave()
     {
-        Dispatcher.BeginInvoke(async () =>
+        await Task.Delay(150);
+
+        Dispatcher.Invoke(() =>
         {
             if (_popup != null)
             {
                 if (_popup.IsOpen)
                 {
-                    await Task.Delay(150);
-                    _popup.Opacity = 0;
                     _popup.IsOpen = false;
                 }
             }
@@ -591,7 +608,8 @@ public class TrayIconControl : Control
             HorizontalOffset = IconPosition.Left,
             VerticalOffset = IconPosition.Top,
             StaysOpen = false,
-            Opacity = 0,
+            Opacity = 100,
+            PopupAnimation = PopupAnimation.Fade,
             AllowsTransparency = true,
             Child = border
         };
@@ -604,10 +622,10 @@ public class TrayIconControl : Control
 
     private nint GetHandle()
     {
-        var wnd = GetWindow();
+        //var wnd = GetWindow();
 
-        if (wnd == null) return IntPtr.Zero;
+        //if (wnd == null) return IntPtr.Zero;
         
-        return new WindowInteropHelper(GetWindow()).Handle;
+        return _hWnd;
     }
 }

@@ -71,6 +71,9 @@ public struct NOTIFYICONDATA
 
 public static class NativeMethods
 {
+    [DllImport(ImportLibNames.User32, CharSet = CharSet.Auto)] 
+    public static extern bool DestroyWindow(IntPtr hWnd);
+
     [DllImport(ImportLibNames.User32, CharSet = CharSet.Auto)]
     public extern static bool DestroyIcon(IntPtr handle);
 
