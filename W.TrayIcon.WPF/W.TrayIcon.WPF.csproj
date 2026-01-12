@@ -16,12 +16,11 @@
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
 		<IncludeSymbols>True</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-		<FileVersion>1.0.0.1</FileVersion>
-		<AssemblyVersion>1.0.0.1</AssemblyVersion>
-		<Version>1.0.0.1</Version>
-		<ProductVersion>1.0.0.1</ProductVersion>
+		<FileVersion>1.0.2</FileVersion>
+		<AssemblyVersion>1.0.2</AssemblyVersion>
+		<Version>1.0.2</Version>
+		<ProductVersion>1.0.2</ProductVersion>
 		<Authors>WssIDs</Authors>
-		<Company>WssIDs</Company>
 		<PackageIcon>wTrayIcon_sm.png</PackageIcon>
 		<ApplicationIcon>wTrayIcon.ico</ApplicationIcon>
 	</PropertyGroup>
