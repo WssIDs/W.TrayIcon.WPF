@@ -8,7 +8,7 @@
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>TrayIcon for WPF</Title>
 		<Description>Adds a TrayIcon to the project</Description>
-		<Copyright>2025</Copyright>
+		<Copyright>Copyright © 2026 WssIDs</Copyright>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
 		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
@@ -23,6 +23,9 @@
 		<Authors>WssIDs</Authors>
 		<PackageIcon>wTrayIcon_sm.png</PackageIcon>
 		<ApplicationIcon>wTrayIcon.ico</ApplicationIcon>
+		<PackageProjectUrl>https://github.com/WssIDs/W.TrayIcon.WPF</PackageProjectUrl>
+		<RepositoryType>git</RepositoryType>
+		<RepositoryUrl>https://github.com/WssIDs/W.TrayIcon.WPF</RepositoryUrl>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
