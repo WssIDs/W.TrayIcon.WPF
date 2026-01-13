@@ -9,7 +9,7 @@
         mc:Ignorable="d"
         Title="MainWindow" Height="450" Width="800">
     <Grid>
-        <w:TrayIconControl IsShow="True" Icon="/Icon128.png">
+        <w:TrayIconControl IsShow="True" Icon="/Icon128.png" CornerRadius="5">
             <w:TrayIconControl.ToolTip>
                 <Grid>
                     <TextBlock Text="{Binding Test,UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"/>

@@ -10,6 +10,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using W.TrayIcon.WPF.Helpers;
 using W.TrayIcon.WPF.Native;
@@ -44,7 +45,10 @@ public class TrayIconControl : Control
 
 
         Background = Brushes.White;
-        Padding = new Thickness(10);
+        // Default padding
+        Padding = new Thickness(10, 8, 10, 8);
+        BorderThickness = new Thickness(0.2);
+        BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0));
 
 
         _clickTimer.Interval = TimeSpan.FromMilliseconds(NativeMethods.GetDoubleClickTime());
@@ -282,8 +286,8 @@ public class TrayIconControl : Control
     {
         bool isDark = IsDarkTheme();
 
-        var bgDarkColor = "#FF282828";
-        var bgLightColor = "#FFDADADA";
+        var bgDarkColor = "#FF2E2E2E";
+        var bgLightColor = "#FFF8F8F8";
         var fgDarkColor = "#FFFFFFFF";
         var fgLightColor = "#FF000000";
 
@@ -470,7 +474,7 @@ public class TrayIconControl : Control
             {
                 if (ContextMenu?.IsOpen == true)
                 {
-                    await Task.Delay(1000);
+                    await Task.Delay(100);
                     ContextMenu.IsOpen = false;
                 }
             }
@@ -677,13 +681,24 @@ public class TrayIconControl : Control
 
         wrapper = new Border
         {
+            BorderThickness = BorderThickness,
+            BorderBrush = BorderBrush,
             DataContext = DataContext,
             CornerRadius = CornerRadius,
             //BorderThickness = ,
             //BorderBrush = ,
             Background = Background,
             Padding = Padding,
-            Child = element
+            Child = element,
+            Margin = new Thickness(10),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromArgb(150, 0, 0, 0),
+                BlurRadius = 0.5,
+                ShadowDepth = 0.2,
+                Direction = 250,
+                Opacity = 0.2
+            }
         };
 
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
