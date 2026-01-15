@@ -1,9 +1,51 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
 
 namespace W.TrayIcon.WPF.Native;
 
-public delegate void MouseClickEvent();
+public enum EMouseEvent
+{
+    None,
+    MouseStop,
+    MouseMove,
+    LeftMouseButtonUp,
+    LeftMouseButtonDown,
+    RightMouseButtonUp,
+    RightMouseButtonDown,
+    MiddleMouseButtonUp,
+    MiddleMouseButtonDown
+}
+
+public class MouseEventArgs
+{
+    public EMouseEvent MouseEvent { get; set; }
+}
+public class MouseMoveEventArgs : MouseEventArgs
+{
+    public Point Point { get; set; }
+}
+
+public class MouseStopEventArgs : MouseMoveEventArgs
+{
+    /// <summary>
+    /// 
+    /// </summary>
+    public DateTime LastMoveTime { get; set; }
+}
+
+public struct Point
+{
+    public int X { get; set; }
+
+    public int Y { get; set; }
+}
+
+public delegate void MouseClickEvent(MouseEventArgs mouseEventArgs);
+
+public delegate void MouseMoveEvent(MouseMoveEventArgs mouseEventArgs);
+
+public delegate void MouseStopEvent(MouseStopEventArgs mouseEventArgs);
 
 public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -12,87 +54,130 @@ public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam
 /// </summary>
 public class GlobalMouseHook
 {
-    private static IntPtr _hookId = IntPtr.Zero;
+    private IntPtr _hookId = IntPtr.Zero;
 
-    private static readonly LowLevelMouseProc _proc = HookCallback;
+    private readonly LowLevelMouseProc _proc;
 
-    private static MouseClickEvent? _onMouseClicked;
+    private bool _isStopped = false;
+
+    private DateTime? _lastTime = DateTime.UtcNow;
+
+    private DispatcherTimer _idleTimer = new();
+
+    /// <summary>
+    /// 
+    /// </summary>
+    private Point _mousePosition;
+
+    public GlobalMouseHook()
+    {
+        _proc = HookCallback;
+    }
+
+    private MouseClickEvent? _onMouseClicked;
 
     /// <summary>
     /// MouseClick
     /// </summary>
-    public static event MouseClickEvent OnMouseClicked
+    public event MouseClickEvent OnMouseClicked
     {
         add => _onMouseClicked += value;
         remove => _onMouseClicked -= value;
     }
 
-    private static DateTime? _lastTime;
+    private MouseMoveEvent? _onMouseMove;
+
+    /// <summary>
+    /// MouseMove
+    /// </summary>
+    public event MouseMoveEvent OnMouseMove
+    {
+        add => _onMouseMove += value;
+        remove => _onMouseMove -= value;
+    }
+
+    private MouseStopEvent? _onMouseStop;
+
+    /// <summary>
+    /// MouseStop
+    /// </summary>
+    public event MouseStopEvent OnMouseStop
+    {
+        add => _onMouseStop += value;
+        remove => _onMouseStop -= value;
+    }
 
     /// <summary>
     /// 
     /// </summary>
-    private static bool _isTaskRunning = false;
+    /// <returns></returns>
+    public Point GetMousePosition() => _mousePosition;
 
     /// <summary>
-    /// 
+    /// Start Hook Process
     /// </summary>
-    private static bool _isMoving = false;
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public static POINT MousePosition { get; set; }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    public static void Start()
+    public void Start()
     {
         _hookId = SetHook(_proc);
-        _isTaskRunning = true;
-        Task.Factory.StartNew(CheckMouseMove, TaskCreationOptions.LongRunning);
-    }
 
-    public static void Stop()
-    {
-        _isTaskRunning = false;
-        NativeMethods.UnhookWindowsHookEx(_hookId);
-    }
-
-    private static async Task CheckMouseMove()
-    {
-        while (_isTaskRunning)
+        _idleTimer = new DispatcherTimer
         {
-            await Task.Delay(100);
+            Interval = TimeSpan.FromMilliseconds(50)
+        };
 
-            if (_isMoving)
+        _idleTimer.Tick += Timer_Tick;
+        _idleTimer.Start();
+    }
+
+    private void Timer_Tick(object? sender, EventArgs e)
+    {
+        var idleTime = DateTime.UtcNow - _lastTime;
+
+        if (idleTime > TimeSpan.FromMilliseconds(100))
+        {
+            if (!_isStopped)
             {
-                if (_lastTime.HasValue)
+                _isStopped = true;
+
+                var mouseEvent = new MouseStopEventArgs
                 {
-                    if ((DateTime.Now - _lastTime.Value).TotalMilliseconds > 50)
-                    {
-                        _isMoving = false;
-                        //Debug.WriteLine("Move Stop");
-                    }
-                }
+                    MouseEvent = EMouseEvent.MouseStop,
+                    LastMoveTime = _lastTime ?? DateTime.UtcNow,
+                    Point = _mousePosition
+                };
+
+                _onMouseStop?.Invoke(mouseEvent);
             }
         }
     }
 
-    private static nint SetHook(LowLevelMouseProc proc)
+    /// <summary>
+    /// Start Hook Process
+    /// </summary>
+    public void Stop()
+    {
+        if (_hookId != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_hookId);
+        }
+
+        _idleTimer.Stop();
+        _idleTimer.Tick -= Timer_Tick;
+    }
+
+    private nint SetHook(LowLevelMouseProc proc)
     {
         using Process curProcess = Process.GetCurrentProcess() ?? throw new Exception();
         if (curProcess.MainModule == null) throw new Exception();
 
         using ProcessModule curModule = curProcess.MainModule;
 
-        if(curModule.ModuleName == null) throw new Exception();
+        if (curModule.ModuleName == null) throw new Exception();
 
         return NativeMethods.SetWindowsHookEx(EWindowHooks.WH_MOUSE_LL, proc, NativeMethods.GetModuleHandle(curModule.ModuleName), 0);
     }
 
-    private static nint HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    private nint HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0)
         {
@@ -102,12 +187,26 @@ public class GlobalMouseHook
             {
                 case EWindowMessages.WM_MOUSEMOVE:
                     {
-                        _isMoving = true;
-                        _lastTime = DateTime.Now;
+                        _isStopped = false;
+                        _lastTime = DateTime.UtcNow;
 
                         MSLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
 
-                        MousePosition = hookStruct.pt;
+                        var mousePos = new Point
+                        {
+                            X = hookStruct.pt.x,
+                            Y = hookStruct.pt.y
+                        };
+
+                        _mousePosition = mousePos;
+
+                        var mouseEvent = new MouseMoveEventArgs
+                        {
+                            MouseEvent = EMouseEvent.MouseMove,
+                            Point = mousePos
+                        };
+
+                        _onMouseMove?.Invoke(mouseEvent);
 
                         break;
                     }
@@ -115,12 +214,38 @@ public class GlobalMouseHook
                 case EWindowMessages.WM_LBUTTONDOWN:
                 case EWindowMessages.WM_MBUTTONDOWN:
                     {
-                        _onMouseClicked?.Invoke();
+                        var eventType = EMouseEvent.None;
+
+                        switch (wMessageParam)
+                        {
+                            case EWindowMessages.WM_RBUTTONDOWN:
+                                eventType = EMouseEvent.RightMouseButtonDown;
+                                break;
+                            case EWindowMessages.WM_LBUTTONDOWN:
+                                eventType = EMouseEvent.LeftMouseButtonDown;
+                                break;
+                            case EWindowMessages.WM_MBUTTONDOWN:
+                                eventType = EMouseEvent.MiddleMouseButtonDown;
+                                break;
+                            case EWindowMessages.WM_LBUTTONUP:
+                                eventType = EMouseEvent.LeftMouseButtonUp;
+                                break;
+                            case EWindowMessages.WM_RBUTTONUP:
+                                eventType = EMouseEvent.RightMouseButtonUp;
+                                break;
+                            case EWindowMessages.WM_MBUTTONUP:
+                                eventType = EMouseEvent.MiddleMouseButtonUp;
+                                break;
+                        }
+
+                        _onMouseClicked?.Invoke(new MouseEventArgs
+                        {
+                            MouseEvent = eventType,
+                        });
+
                         break;
                     }
             }
-
-            //Debug.WriteLine($"Global window message - {wMessageParam}");
         }
 
         return NativeMethods.CallNextHookEx(_hookId, nCode, wParam, lParam);

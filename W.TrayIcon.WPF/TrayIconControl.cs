@@ -10,6 +10,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using W.TrayIcon.WPF.Helpers;
@@ -22,11 +23,13 @@ namespace W.TrayIcon.WPF;
 /// </summary>
 public class TrayIconControl : Control
 {
-    private CancellationTokenSource _cancellationTokenSource = new();
-
     private IntPtr _hWnd = IntPtr.Zero;
 
+    private readonly GlobalMouseHook _hook = new();
+
     private readonly DispatcherTimer _clickTimer = new();
+
+    private DispatcherTimer _leaveTimer = new();
 
     private HwndSource? _source = null;
 
@@ -35,21 +38,23 @@ public class TrayIconControl : Control
 
     private bool _isPopupInitialized = false;
     private bool _isHovering = false;
+    private bool _isInContextMenu = false;
+    private DateTime _lastTime = DateTime.UtcNow;
 
     protected NOTIFYICONDATA Data;
+
+    private DispatcherTimer _idleTimer = new();
 
     public TrayIconControl()
     {
         Initialized += OnInitialized;
         Unloaded += OnUnloaded;
 
-
         Background = Brushes.White;
         // Default padding
         Padding = new Thickness(10, 8, 10, 8);
         BorderThickness = new Thickness(0.2);
         BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0));
-
 
         _clickTimer.Interval = TimeSpan.FromMilliseconds(NativeMethods.GetDoubleClickTime());
         _clickTimer.Tick += (s, e) =>
@@ -205,6 +210,16 @@ public class TrayIconControl : Control
         }
     }
 
+    public object? TrayToolTip
+    {
+        get => (object?)GetValue(TrayToolTipProperty);
+        set => SetValue(TrayToolTipProperty, value);
+    }
+
+    // Using a DependencyProperty as the backing store for TrayToolTip.  This enables animation, styling, binding, etc...
+    public static readonly DependencyProperty TrayToolTipProperty =
+        DependencyProperty.Register(nameof(TrayToolTip), typeof(object), typeof(TrayIconControl), new PropertyMetadata(null));
+
 
     public ImageSource? Icon
     {
@@ -271,11 +286,21 @@ public class TrayIconControl : Control
         return false;
     }
 
-    private void GlobalMouseHook_OnMouseClicked()
+    private void GlobalMouseHook_OnMouseClicked(Native.MouseEventArgs mouseEventArgs)
     {
-        if (!IsHovering())
+        if (!_isInContextMenu)
         {
-            HideContextMenu();
+            if (!IsHovering())
+            {
+                HideContextMenu();
+            }
+            else
+            {
+                if (mouseEventArgs.MouseEvent != EMouseEvent.RightMouseButtonDown && mouseEventArgs.MouseEvent != EMouseEvent.RightMouseButtonUp)
+                {
+                    HideContextMenu();
+                }
+            }
         }
     }
 
@@ -324,12 +349,36 @@ public class TrayIconControl : Control
         }
     }
 
+    /// <summary>
+    /// CheckCursor under tray
+    /// </summary>
+    /// <returns></returns>
+    private bool IsCursorInMainTray()
+    {
+        // основное окно трея
+        IntPtr trayWnd = NativeMethods.FindWindow("Shell_TrayWnd", null);
+        if (trayWnd == IntPtr.Zero) return false;
+
+        // область уведомлений
+        IntPtr notifyWnd = NativeMethods.FindWindowEx(trayWnd, IntPtr.Zero, "TrayNotifyWnd", null);
+        if (notifyWnd == IntPtr.Zero) return false;
+
+        // прямоугольник области
+        if (!NativeMethods.GetWindowRect(notifyWnd, out RECT rect)) return false;
+
+        // позиция курсора
+        NativeMethods.GetCursorPos(out POINT pt);
+
+        return pt.x >= rect.Left && pt.x <= rect.Right &&
+               pt.y >= rect.Top && pt.y <= rect.Bottom;
+    }
+
     private void HideIcon()
     {
-        GlobalMouseHook.Stop();
-        GlobalMouseHook.OnMouseClicked -= GlobalMouseHook_OnMouseClicked;
-
-        _cancellationTokenSource.Cancel();
+        _hook.Stop();
+        _hook.OnMouseClicked -= GlobalMouseHook_OnMouseClicked;
+        _hook.OnMouseMove -= GlobalMouseHook_OnMouseMove;
+        _hook.OnMouseStop -= GlobalMouseHook_OnMouseStop;
 
         _hWnd = GetHandle();
 
@@ -337,6 +386,36 @@ public class TrayIconControl : Control
         source?.RemoveHook(WndProc);
 
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref Data);
+    }
+
+    private bool _inside = false;
+
+    private void GlobalMouseHook_OnMouseMove(MouseMoveEventArgs mouseEventArgs)
+    {
+        if (_hWnd != IntPtr.Zero)
+        {
+            NOTIFYICONIDENTIFIER nii = new()
+            {
+                cbSize = Marshal.SizeOf<NOTIFYICONIDENTIFIER>(),
+                hWnd = _hWnd,
+                uID = 0,
+            };
+
+            var hr = NativeMethods.Shell_NotifyIconGetRect(ref nii, out var taskIconPosition);
+
+            if (hr == 0)
+            {
+                IconPosition = taskIconPosition;
+
+                if (IsInnerTaskIcon())
+                {
+                    if (IsCursorInMainTray())
+                    {
+                        _inside = !_inside;
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -384,16 +463,89 @@ public class TrayIconControl : Control
 
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref Data);
 
-        GlobalMouseHook.Start();
-        GlobalMouseHook.OnMouseClicked += GlobalMouseHook_OnMouseClicked;
+        _hook.Start();
+        _hook.OnMouseClicked += GlobalMouseHook_OnMouseClicked;
+        _hook.OnMouseMove += GlobalMouseHook_OnMouseMove;
+        _hook.OnMouseStop += GlobalMouseHook_OnMouseStop;
 
-        _cancellationTokenSource = new CancellationTokenSource();
-        var checkMouseMoveTask = Task.Factory.StartNew(CheckMouseMove, cancellationToken: _cancellationTokenSource.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        _idleTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(10)
+        };
+
+        _idleTimer.Tick += Timer_Tick;
+        _idleTimer.Start();
 
         _hWnd = GetHandle();
 
         var source = HwndSource.FromHwnd(_hWnd);
         source?.AddHook(WndProc);
+
+        if(ContextMenu != null)
+        {
+            ContextMenu.Opened += ContextMenu_Opened;
+            ContextMenu.Closed += ContextMenu_Closed;
+        }
+    }
+
+    private void ContextMenu_Closed(object sender, RoutedEventArgs e)
+    {
+        _leaveTimer?.Stop();
+    }
+
+    private void ContextMenu_Opened(object sender, RoutedEventArgs e)
+    {
+        var menu = sender as ContextMenu;
+        
+        var animation = new DoubleAnimation
+        {
+            From = 0,
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(200)
+        };
+        
+        menu?.BeginAnimation(OpacityProperty, animation);
+
+        _leaveTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(80)
+        };
+
+        _leaveTimer.Tick += (_, __) =>
+        {
+            var mousePosition = _hook.GetMousePosition();
+
+            var hwndSrc = (HwndSource)PresentationSource.FromVisual(ContextMenu);
+
+            if (hwndSrc == null) return;
+
+            if (NativeMethods.GetWindowRect(hwndSrc.Handle, out RECT rect))
+            {
+                _isInContextMenu = mousePosition.X >= rect.Left && mousePosition.X <= rect.Right &&
+                    mousePosition.Y >= rect.Top && mousePosition.Y <= rect.Bottom;
+            }
+        };
+
+        _leaveTimer.Start();
+    }
+
+    private void Timer_Tick(object? sender, EventArgs e)
+    {
+        var idleTime = DateTime.UtcNow - _lastTime;
+
+        if (idleTime > TimeSpan.FromMilliseconds(5))
+        {
+            if (IsHovering() && !IsInnerTaskIcon())
+            {
+                SetIsHovering(false);
+
+                _ = OnTrayMouseLeave();
+            }
+        }
+    }
+
+    private void GlobalMouseHook_OnMouseStop(MouseStopEventArgs mouseEventArgs)
+    {
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -406,17 +558,25 @@ public class TrayIconControl : Control
             {
                 case EWindowMessages.WM_MOUSEMOVE:
 
-                    if (ContextMenu == null || (ContextMenu != null && !ContextMenu.IsOpen))
+                    _lastTime = DateTime.UtcNow;
+
+                    if (!IsHovering())
                     {
-                        if (!IsHovering())
+                        SetIsHovering(true);
+
+                        if (IsInnerTaskIcon())
                         {
-                            SetIsHovering(true);
+                            if (ContextMenu == null || (ContextMenu != null && !ContextMenu.IsOpen))
+                            {
+                                if (IsPopupInitialized())
+                                {
+                                    _ = OnTrayMouseEnter();
+                                }
+                            }
                         }
                     }
-                    else
-                    {
-                        _ = OnTrayMouseLeave();
-                    }
+
+
 
                     break;
                 case EWindowMessages.WM_RBUTTONUP:
@@ -428,7 +588,6 @@ public class TrayIconControl : Control
                         if (ContextMenu?.IsOpen == false)
                         {
                             _ = OnTrayMouseLeave();
-
                             ContextMenu.IsOpen = true;
                         }
                     }
@@ -446,8 +605,6 @@ public class TrayIconControl : Control
 
                     _clickTimer.Stop();
                     DoubleClickCommand?.Execute(null);
-
-                    Debug.WriteLine("Double Click");
                     break;
                 case EWindowMessages.WM_MBUTTONUP:
                 case EWindowMessages.WM_MBUTTONDOWN:
@@ -466,121 +623,31 @@ public class TrayIconControl : Control
         LeftClickCommand?.Execute(null);
     }
 
-    private async void HideContextMenu()
+    private void HideContextMenu()
     {
-        await Dispatcher.Invoke(async () =>
+        if (!_isInContextMenu)
         {
-            if (ContextMenu != null)
+            Dispatcher.Invoke(() =>
             {
-                if (ContextMenu?.IsOpen == true)
+                if (ContextMenu != null)
                 {
-                    await Task.Delay(100);
-                    ContextMenu.IsOpen = false;
-                }
-            }
-        });
-    }
-
-    private async Task CheckMouseMove()
-    {
-        try
-        {
-            while (!_cancellationTokenSource.Token.IsCancellationRequested)
-            {
-                var hasToolTipMode = false;
-
-                await Dispatcher.BeginInvoke(() =>
-                {
-                    hasToolTipMode = (ContextMenu == null || (ContextMenu != null && !ContextMenu.IsOpen));
-                });
-
-                if (_hWnd != IntPtr.Zero)
-                {
-                    NOTIFYICONIDENTIFIER nii = new()
+                    if (ContextMenu?.IsOpen == true)
                     {
-                        cbSize = Marshal.SizeOf<NOTIFYICONIDENTIFIER>(),
-                        hWnd = _hWnd,
-                        uID = 0,
-                    };
-
-                    int hr = NativeMethods.Shell_NotifyIconGetRect(ref nii, out var _taskIconPosition);
-
-                    IconPosition = _taskIconPosition;
-
-                    if (hr == 0)
-                    {
-                        await Dispatcher.BeginInvoke(() =>
-                        {
-                            var popup = GetPopup();
-
-                            if (popup != null && IsPopupInitialized())
-                            {
-                                popup.HorizontalOffset = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) - ((FrameworkElement)popup.Child).ActualWidth / 2;
-                                popup.VerticalOffset = IconPosition.Top - ((FrameworkElement)popup.Child).ActualHeight - 12;
-                            }
-                        });
-
-                        if (IsHovering())
-                        {
-                            if (!IsInnerTaskIcon())
-                            {
-                                SetIsHovering(false);
-                            }
-
-                        }
-                    }
-                    else
-                    {
-                        SetIsHovering(false);
-                        continue;
+                        ContextMenu.IsOpen = false;
                     }
                 }
-
-
-                if (hasToolTipMode)
-                {
-                    if (IsHovering())
-                    {
-                        if (IsInnerTaskIcon())
-                        {
-                            await OnTrayMouseEnter();
-                            continue;
-                        }
-                        else
-                        {
-                            await OnTrayMouseLeave();
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        await OnTrayMouseLeave();
-                        HideContextMenu();
-
-                        continue;
-                    }
-                }
-                else
-                {
-                    await OnTrayMouseLeave();
-                }
-
-                await Task.Delay(100);
-            }
-        }
-        catch (Exception)
-        {
-            //ignore
-            //throw;
+            });
         }
     }
 
     private bool IsInnerTaskIcon()
     {
-        return GlobalMouseHook.MousePosition.x >= IconPosition.Left &&
-                            GlobalMouseHook.MousePosition.x <= IconPosition.Right &&
-                            GlobalMouseHook.MousePosition.y >= IconPosition.Top &&
-                            GlobalMouseHook.MousePosition.y <= IconPosition.Bottom;
+        var mousePosition = _hook.GetMousePosition();
+
+        return mousePosition.X >= IconPosition.Left &&
+                            mousePosition.X <= IconPosition.Right &&
+                            mousePosition.Y >= IconPosition.Top &&
+                            mousePosition.Y <= IconPosition.Bottom;
     }
 
     private async Task OnTrayMouseEnter()
@@ -593,6 +660,22 @@ public class TrayIconControl : Control
             {
                 if (!popup.IsOpen)
                 {
+                    var content = popup.Child;
+                    content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    Size desired = content.DesiredSize;
+
+                    if (IsPopupInitialized())
+                    {
+                        popup.HorizontalOffset = IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2 - desired.Width / 2;
+
+                        var child = (FrameworkElement?)popup.Child;
+
+                        if (child != null)
+                        {
+                            popup.VerticalOffset = IconPosition.Top - desired.Height + child.Margin.Top + child.Margin.Bottom - 12;
+                        }
+                    }
+
                     await Task.Delay(250);
                     popup.IsOpen = true;
                 }
@@ -610,7 +693,7 @@ public class TrayIconControl : Control
             {
                 if (popup.IsOpen)
                 {
-                    await Task.Delay(250);
+                    //await Task.Delay(100);
                     popup.IsOpen = false;
                 }
             }
@@ -630,13 +713,11 @@ public class TrayIconControl : Control
 
         FrameworkElement? element;
 
-        if (ToolTip is string toolTip)
+        if (TrayToolTip is string toolTip)
         {
-            var binding = BindingOperations.GetBinding(this, ToolTipProperty);
+            var binding = BindingOperations.GetBinding(this, TrayToolTipProperty);
             if (binding != null)
             {
-                Debug.WriteLine("Found binding ToolTipProperty");
-
                 var textBox = new TextBlock
                 {
                     DataContext = DataContext
@@ -648,8 +729,6 @@ public class TrayIconControl : Control
             }
             else
             {
-                Debug.WriteLine("Binding not found");
-
                 element = new TextBlock
                 {
                     Text = toolTip
@@ -658,7 +737,7 @@ public class TrayIconControl : Control
         }
         else
         {
-            element = (FrameworkElement?)ToolTip;
+            element = (FrameworkElement?)TrayToolTip;
 
             if (element != null)
             {
@@ -666,9 +745,9 @@ public class TrayIconControl : Control
             }
         }
 
-        if (ToolTip == null)
+        if (TrayToolTip == null)
         {
-            ToolTip = GetWindow()?.Title;
+            TrayToolTip = GetWindow()?.Title;
         }
 
         var wrapper = GetWrapper();
@@ -685,8 +764,6 @@ public class TrayIconControl : Control
             BorderBrush = BorderBrush,
             DataContext = DataContext,
             CornerRadius = CornerRadius,
-            //BorderThickness = ,
-            //BorderBrush = ,
             Background = Background,
             Padding = Padding,
             Child = element,

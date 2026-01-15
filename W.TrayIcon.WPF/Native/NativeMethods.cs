@@ -71,6 +71,15 @@ public struct NOTIFYICONDATA
 
 public static class NativeMethods
 {
+    [DllImport(ImportLibNames.User32)]
+    public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+
+    [DllImport(ImportLibNames.User32, SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string? lpszWindow);
+
+    [DllImport(ImportLibNames.User32, SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
     [DllImport(ImportLibNames.User32, CharSet = CharSet.Auto)] 
     public static extern bool DestroyWindow(IntPtr hWnd);
 
