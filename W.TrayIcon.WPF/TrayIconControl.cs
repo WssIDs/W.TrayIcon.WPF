@@ -664,15 +664,19 @@ public class TrayIconControl : Control
                     content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
                     Size desired = content.DesiredSize;
 
+                    var dpi = VisualTreeHelper.GetDpi(popup);
+                    double scale = dpi.DpiScaleX;
+
                     if (IsPopupInitialized())
                     {
-                        popup.HorizontalOffset = IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2 - desired.Width / 2;
-
                         var child = (FrameworkElement?)popup.Child;
 
                         if (child != null)
                         {
-                            popup.VerticalOffset = IconPosition.Top - desired.Height + child.Margin.Top + child.Margin.Bottom - 12;
+                            double iconCenter = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) / scale;
+
+                            popup.HorizontalOffset = iconCenter - (desired.Width - child.Margin.Left - child.Margin.Right) / 2;
+                            popup.VerticalOffset = (IconPosition.Top / scale) - desired.Height + child.Margin.Top + child.Margin.Bottom - 12;
                         }
                     }
 
