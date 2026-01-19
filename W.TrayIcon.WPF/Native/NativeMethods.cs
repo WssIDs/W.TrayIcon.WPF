@@ -130,6 +130,38 @@ public static class NativeMethods
         ref NOTIFYICONIDENTIFIER identifier,
         out RECT iconLocation
     );
+
+    [DllImport(ImportLibNames.User32, SetLastError = true)]
+    public static extern bool SystemParametersInfo(ESystemParameters uiAction, int uiParam, out RECT pvParam, int fWinIni);
+
+
+    /// <summary>
+    /// Рабочая область primary screen (где находится трей).
+    /// Возвращает координаты в WPF DIPs.
+    /// </summary>
+    public static Rect GetPrimaryWorkArea()
+    {
+        if (SystemParametersInfo(ESystemParameters.SPI_GETWORKAREA, 0, out RECT rect, 0))
+        {
+            // Преобразуем в WPF Rect (DIPs)
+            double dpiX = 1.0, dpiY = 1.0;
+            if (Application.Current?.MainWindow != null)
+            {
+                var dpi = VisualTreeHelper.GetDpi(Application.Current.MainWindow);
+                dpiX = dpi.DpiScaleX;
+                dpiY = dpi.DpiScaleY;
+            }
+
+            return new Rect(
+                rect.Left / dpiX,
+                rect.Top / dpiY,
+                (rect.Right - rect.Left) / dpiX,
+                (rect.Bottom - rect.Top) / dpiY
+            );
+        }
+
+        return Rect.Empty;
+    }
 }
 
 public static class NativeThemeColorsMethods

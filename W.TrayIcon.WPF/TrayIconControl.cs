@@ -45,6 +45,8 @@ public class TrayIconControl : Control
 
     private DispatcherTimer _idleTimer = new();
 
+    private readonly DispatcherTimer _checkClosingToolTipTimer = new();
+
     public TrayIconControl()
     {
         Initialized += OnInitialized;
@@ -61,6 +63,15 @@ public class TrayIconControl : Control
         {
             _clickTimer.Stop();
             HandleSingleClick();
+        };
+
+        _checkClosingToolTipTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _checkClosingToolTipTimer.Tick += async (s, e) =>
+        {
+            await OnTrayMouseLeave();
+            _checkClosingToolTipTimer.Stop();
+
+            Debug.WriteLine("Force hiding the tooltip");
         };
     }
 
@@ -415,6 +426,17 @@ public class TrayIconControl : Control
                     }
                 }
             }
+
+            if (!IsHovering())
+            {
+                if (_popup != null)
+                {
+                    if (!_checkClosingToolTipTimer.IsEnabled && _popup.IsOpen)
+                    {
+                        _checkClosingToolTipTimer.Start();
+                    }
+                }
+            }
         }
     }
 
@@ -675,13 +697,29 @@ public class TrayIconControl : Control
                         {
                             double iconCenter = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) / scale;
 
-                            popup.HorizontalOffset = iconCenter - (desired.Width - child.Margin.Left - child.Margin.Right) / 2;
+                            var popupWidth = (desired.Width - child.Margin.Left - child.Margin.Right);
+                            var popupPosition = iconCenter - popupWidth / 2;
+
+                            var rect = NativeMethods.GetPrimaryWorkArea();
+
+                            if (iconCenter + popupWidth / 2 > rect.Right)
+                            {
+                                popupPosition = rect.Right - (desired.Width - child.Margin.Left - child.Margin.Right);
+                            }
+
+                            popup.HorizontalOffset = popupPosition;
                             popup.VerticalOffset = (IconPosition.Top / scale) - desired.Height + child.Margin.Top + child.Margin.Bottom - 12;
+
+                            Debug.WriteLine($"Right - {rect.Right} | IconPositionCenter - {iconCenter} | Popup Width - {desired.Width - child.Margin.Left - child.Margin.Right} | Popup With / 2 {(desired.Width - child.Margin.Left - child.Margin.Right) / 2} | Popup/2 + IconCenter - {iconCenter + (desired.Width - child.Margin.Left - child.Margin.Right) / 2}");
                         }
                     }
 
-                    await Task.Delay(250);
-                    popup.IsOpen = true;
+                    await Task.Delay(500);
+
+                    if (IsHovering())
+                    {
+                        popup.IsOpen = true;
+                    }
                 }
             }
         });
@@ -698,6 +736,7 @@ public class TrayIconControl : Control
                 if (popup.IsOpen)
                 {
                     //await Task.Delay(100);
+
                     popup.IsOpen = false;
                 }
             }
