@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Windows;
 
 namespace W.TrayIcon.WPF.Sample;
@@ -24,11 +25,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         int i = 0;
 
+        var rand = new Random(255);
+
         await Task.Run(async () =>
         {
             while (true)
             {
-                Test = $"Test Window {i}";
+                var stringBuilder = new StringBuilder();
+                
+                var count = rand.Next(0, 500);
+
+                for (int i = 0; i < count; i++)
+                {
+                    stringBuilder.Append('*');
+                }
+
+                Test = $"Test Window {i} ***";
 
                 await Task.Delay(1000);
                 i++;
@@ -43,7 +55,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private string _test = "Test Window";
+    private string _test = "Test Window ";
 
     public string Test
     {
