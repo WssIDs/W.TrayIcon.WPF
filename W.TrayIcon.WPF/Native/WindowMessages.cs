@@ -14,6 +14,7 @@ public enum EWindowMessages
 
     WM_USER = 0x0400,
     WM_TIMER = 0x0113,
+    WM_DPICHANGED = 0x02E0
 }
 
 public enum EWindowHooks : int

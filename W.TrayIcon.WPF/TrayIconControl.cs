@@ -12,9 +12,11 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 using W.TrayIcon.WPF.Helpers;
 using W.TrayIcon.WPF.Native;
+using W.TrayIcon.WPF.Statics;
 
 namespace W.TrayIcon.WPF;
 
@@ -47,6 +49,8 @@ public class TrayIconControl : Control
 
     private readonly DispatcherTimer _checkClosingToolTipTimer = new();
 
+    private readonly DispatcherTimer _calculatePopupPositionTimer = new();
+
     public TrayIconControl()
     {
         Initialized += OnInitialized;
@@ -70,10 +74,58 @@ public class TrayIconControl : Control
         {
             await OnTrayMouseLeave();
             _checkClosingToolTipTimer.Stop();
+        };
 
-            Debug.WriteLine("Force hiding the tooltip");
+        _calculatePopupPositionTimer.Interval = TimeSpan.FromMilliseconds(100);
+        _calculatePopupPositionTimer.Tick += async (s, e) =>
+        {
+            if (IsHovering())
+            {
+                var popup = GetPopup();
+
+                if (popup != null)
+                {
+                    if (IsPopupInitialized())
+                    {
+                        var content = popup.Child;
+                        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        Size desired = content.DesiredSize;
+
+                        TrayIconStatics.CalculateDpi();
+
+                        double scale = TrayIconStatics.DpiScale;
+
+                        var child = (FrameworkElement?)popup.Child;
+
+                        if (child != null)
+                        {
+                            var iconCenter = IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2;
+                            var iconCenterDpi = iconCenter * scale;
+
+                            var popupWidth = desired.Width - child.Margin.Left - child.Margin.Right;
+                            var popupPosition = iconCenterDpi - popupWidth / 2;
+
+                            var rect = NativeMethods.GetPrimaryWorkArea();
+
+                            if (iconCenterDpi + popupWidth / 2 > rect.Right)
+                            {
+                                popupPosition = rect.Right - (desired.Width - child.Margin.Left - child.Margin.Right);
+                            }
+
+                            var offset = 12;
+                            var popupHeigth = (desired.Height - child.Margin.Top - child.Margin.Bottom);
+
+                            var icocPositionTop = (IconPosition.Top * scale) - offset;
+
+                            popup.HorizontalOffset = popupPosition;
+                            popup.VerticalOffset = icocPositionTop - popupHeigth;
+                        }
+                    }
+                }
+            }
         };
     }
+
 
     /// <summary>
     /// Hovering mouse inside tray icon
@@ -386,6 +438,8 @@ public class TrayIconControl : Control
 
     private void HideIcon()
     {
+        _calculatePopupPositionTimer.Stop();
+
         _hook.Stop();
         _hook.OnMouseClicked -= GlobalMouseHook_OnMouseClicked;
         _hook.OnMouseMove -= GlobalMouseHook_OnMouseMove;
@@ -417,6 +471,13 @@ public class TrayIconControl : Control
             if (hr == 0)
             {
                 IconPosition = taskIconPosition;
+
+                var source = PresentationSource.FromVisual(this);
+                if (source != null)
+                {
+                    Matrix transform = source.CompositionTarget.TransformFromDevice;
+                    var point = transform.Transform(new System.Windows.Point { X = _hook.GetMousePosition().X, Y = _hook.GetMousePosition().Y });
+                }
 
                 if (IsInnerTaskIcon())
                 {
@@ -503,11 +564,14 @@ public class TrayIconControl : Control
         var source = HwndSource.FromHwnd(_hWnd);
         source?.AddHook(WndProc);
 
-        if(ContextMenu != null)
+        if (ContextMenu != null)
         {
             ContextMenu.Opened += ContextMenu_Opened;
             ContextMenu.Closed += ContextMenu_Closed;
         }
+
+
+        _calculatePopupPositionTimer.Start();
     }
 
     private void ContextMenu_Closed(object sender, RoutedEventArgs e)
@@ -518,14 +582,14 @@ public class TrayIconControl : Control
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         var menu = sender as ContextMenu;
-        
+
         var animation = new DoubleAnimation
         {
             From = 0,
             To = 1,
             Duration = TimeSpan.FromMilliseconds(200)
         };
-        
+
         menu?.BeginAnimation(OpacityProperty, animation);
 
         _leaveTimer = new DispatcherTimer
@@ -682,38 +746,6 @@ public class TrayIconControl : Control
             {
                 if (!popup.IsOpen)
                 {
-                    var content = popup.Child;
-                    content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                    Size desired = content.DesiredSize;
-
-                    var dpi = VisualTreeHelper.GetDpi(popup);
-                    double scale = dpi.DpiScaleX;
-
-                    if (IsPopupInitialized())
-                    {
-                        var child = (FrameworkElement?)popup.Child;
-
-                        if (child != null)
-                        {
-                            double iconCenter = (IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2) / scale;
-
-                            var popupWidth = (desired.Width - child.Margin.Left - child.Margin.Right);
-                            var popupPosition = iconCenter - popupWidth / 2;
-
-                            var rect = NativeMethods.GetPrimaryWorkArea();
-
-                            if (iconCenter + popupWidth / 2 > rect.Right)
-                            {
-                                popupPosition = rect.Right - (desired.Width - child.Margin.Left - child.Margin.Right);
-                            }
-
-                            popup.HorizontalOffset = popupPosition;
-                            popup.VerticalOffset = (IconPosition.Top / scale) - desired.Height + child.Margin.Top + child.Margin.Bottom - 12;
-
-                            Debug.WriteLine($"Right - {rect.Right} | IconPositionCenter - {iconCenter} | Popup Width - {desired.Width - child.Margin.Left - child.Margin.Right} | Popup With / 2 {(desired.Width - child.Margin.Left - child.Margin.Right) / 2} | Popup/2 + IconCenter - {iconCenter + (desired.Width - child.Margin.Left - child.Margin.Right) / 2}");
-                        }
-                    }
-
                     await Task.Delay(500);
 
                     if (IsHovering())

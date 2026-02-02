@@ -68,9 +68,43 @@ public struct NOTIFYICONDATA
     public string szTip;
     public Guid guidItem;
 }
+[StructLayout(LayoutKind.Sequential)]
+public struct MONITORINFO
+{
+    public int cbSize;
+    public RECT rcMonitor;
+    public RECT rcWork;
+    public uint dwFlags;
+}
 
 public static class NativeMethods
 {
+    public const int MDT_EFFECTIVE_DPI = 0;
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("shcore.dll")]
+    public static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [DllImport(ImportLibNames.User32)]
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext); 
+    
+    public static readonly IntPtr PER_MONITOR_AWARE_V2 = (IntPtr)(-4);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetThreadDpiAwarenessContext();
+
+    [DllImport("user32.dll")]
+    public static extern bool AreDpiAwarenessContextsEqual(IntPtr dpiContextA, IntPtr dpiContextB);
+
+    [DllImport(ImportLibNames.User32)]
+    public static extern uint GetDpiForWindow(IntPtr hWnd);
+
     [DllImport(ImportLibNames.User32)]
     public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
 

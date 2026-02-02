@@ -6,18 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <ApplicationIcon>Copilot_20260109_234914.ico</ApplicationIcon>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Remove="Icon128.png" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="Copilot_20260109_234914.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\W.TrayIcon.WPF\W.TrayIcon.WPF.csproj" />

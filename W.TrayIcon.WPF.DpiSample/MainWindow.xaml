@@ -1,0 +1,30 @@
+﻿<Window x:Class="W.TrayIcon.WPF.DpiSample.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:W.TrayIcon.WPF.DpiSample" xmlns:w="http://schemas.wssids.com/wpf/w/trayicon"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="450" Width="800">
+    <Grid>
+        <w:TrayIconControl IsShow="True" Icon="/Icon128.png"
+            CornerRadius="10"
+            Padding="15">
+            <w:TrayIconControl.TrayToolTip>
+                <StackPanel>
+                    <TextBlock Text="W.TrayIcon.WPF" Foreground="Green" FontWeight="Bold" FontSize="14"/>
+                    <TextBlock Margin="0 5 0 0" Foreground="White" FontSize="12" Text="{Binding Path=Test, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay, FallbackValue='No data', StringFormat='Title - {0}'}"/>
+                    <TextBlock Margin="0 2 0 0" Text="Version - 1.0.1" Foreground="White" FontSize="12"/>
+                    <TextBlock Margin="0 2 0 0" Foreground="White" FontSize="12" Text="Instal location: C:\Windows\System32\AppLocker\AppLocker.dat" />
+                    <TextBlock Foreground="White" Text="Check update addon"  Margin="0 10 0 0"/>
+                    <TextBlock Text="Test download info" Foreground="White" Margin="0 2 0 0"/>
+                </StackPanel>
+            </w:TrayIconControl.TrayToolTip>
+            <w:TrayIconControl.ContextMenu>
+                <ContextMenu>
+                    <!--<MenuItem Header="Test Click" Click="MenuItem_Click" IsEnabled="false"/>-->
+                </ContextMenu>
+            </w:TrayIconControl.ContextMenu>
+        </w:TrayIconControl>
+    </Grid>
+</Window>
