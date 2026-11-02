@@ -8,7 +8,7 @@
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<Title>TrayIcon for WPF</Title>
 		<Description>Adds a TrayIcon to the project</Description>
-		<Copyright>Copyright © 2026 WssIDs</Copyright>
+		<Copyright>Copyright © 2027 WssIDs</Copyright>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
 		<PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
@@ -18,7 +18,7 @@
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<FileVersion>1.0.10</FileVersion>
 		<AssemblyVersion>1.0.10</AssemblyVersion>
-		<Version>1.0.10</Version>
+		<Version>1.0.11</Version>
 		<ProductVersion>1.0.10</ProductVersion>
 		<Authors>WssIDs</Authors>
 		<PackageIcon>wTrayIcon_sm.png</PackageIcon>
@@ -26,6 +26,8 @@
 		<PackageProjectUrl>https://github.com/WssIDs/W.TrayIcon.WPF</PackageProjectUrl>
 		<RepositoryType>git</RepositoryType>
 		<RepositoryUrl>https://github.com/WssIDs/W.TrayIcon.WPF</RepositoryUrl>
+		<PackageTags>TrayIcon</PackageTags>
+		<PackageReleaseNotes>Fixed a global issue that caused freezes and lags. In some cases, the tray tooltip would not appear</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
@@ -33,7 +35,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Content Include="wTrayIcon.ico" />
+		<None Include="wTrayIcon_sm.png" Pack="true" PackagePath="\" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -44,10 +46,6 @@
 		<None Include="..\README.md">
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
-		</None>
-		<None Include="C:\Users\wssid\Downloads\wTrayIcon_sm.png">
-		  <Pack>True</Pack>
-		  <PackagePath>\</PackagePath>
 		</None>
 	</ItemGroup>
 
