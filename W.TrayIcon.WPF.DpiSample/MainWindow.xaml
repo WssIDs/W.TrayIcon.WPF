@@ -13,11 +13,11 @@
             <w:TrayIconControl.TrayToolTip>
                 <StackPanel>
                     <TextBlock Text="W.TrayIcon.WPF" Foreground="Green" FontWeight="Bold" FontSize="14"/>
-                    <TextBlock Margin="0 5 0 0" Foreground="White" FontSize="12" Text="{Binding Path=Test, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay, FallbackValue='No data', StringFormat='Title - {0}'}"/>
-                    <TextBlock Margin="0 2 0 0" Text="Version - 1.0.1" Foreground="White" FontSize="12"/>
-                    <TextBlock Margin="0 2 0 0" Foreground="White" FontSize="12" Text="Install location: C:\Windows\System32\AppLocker\AppLocker.dat" />
-                    <TextBlock Foreground="White" Text="Check update addon"  Margin="0 10 0 0"/>
-                    <TextBlock Text="Test download info" Foreground="White" Margin="0 2 0 0"/>
+                    <TextBlock Margin="0 5 0 0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="12" Text="{Binding Path=Test, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay, FallbackValue='No data', StringFormat='Title - {0}'}"/>
+                    <TextBlock Margin="0 2 0 0" Text="Version - 1.0.1" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="12"/>
+                    <TextBlock Margin="0 2 0 0" Foreground="{DynamicResource TextFillColorPrimaryBrush}" FontSize="12" Text="Install location: C:\Windows\System32\AppLocker\AppLocker.dat" />
+                    <TextBlock Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="Check update addon"  Margin="0 10 0 0"/>
+                    <TextBlock Text="Test download info" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Margin="0 2 0 0"/>
                 </StackPanel>
             </w:TrayIconControl.TrayToolTip>
             <w:TrayIconControl.ContextMenu>

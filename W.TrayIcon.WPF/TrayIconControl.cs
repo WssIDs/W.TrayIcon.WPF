@@ -1,7 +1,11 @@
 ﻿using Microsoft.Win32;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -11,7 +15,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using W.TrayIcon.WPF.Helpers;
 using W.TrayIcon.WPF.Native;
@@ -51,20 +54,33 @@ public class TrayIconControl : Control
     private Window? _ownerWindow;
         
     private bool _isCleanedUp;
-     
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern uint RegisterWindowMessage(string lpString);
+    
+    // Popup создаётся в коде и живёт в отдельном HWND, поэтому не входит в дерево окна:
+    // ресурсы темы (ThemeMode=System, DynamicResource) до него не доходят и при смене темы не обновляются.
+    // Делаем popup логическим потомком контрола, тогда поиск ресурсов и их инвалидация идут и через него.
+    private readonly List<object> _logicalChildren = new();
+ 
+    protected override System.Collections.IEnumerator LogicalChildren => _logicalChildren.GetEnumerator();
+    
+    /// <summary>
+    /// Постоянный идентификатор иконки. Рекомендуется задавать явно в приложении-потребителе.
+    /// Если не задан, вычисляется из пути к exe хост-приложения.
+    /// </summary>
+    public Guid IconGuid { get; set; } = Guid.Empty;
 
+    private bool _useGuid;
+    
     public TrayIconControl()
     {
         Initialized += OnInitialized;
         Unloaded += OnUnloaded;
 
-        Background = Brushes.White;
+        Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
+        Foreground = Application.Current.TryFindResource("TextFillColorPrimaryBrush") as Brush;
         // Default padding
         Padding = new Thickness(10, 8, 10, 8);
         BorderThickness = new Thickness(0.2);
-        BorderBrush = new SolidColorBrush(Color.FromArgb(150, 0, 0, 0));
+        BorderBrush = Application.Current.TryFindResource("ControlElevationBorderBrush") as Brush;
 
         _clickTimer.Interval = TimeSpan.FromMilliseconds(NativeMethods.GetDoubleClickTime());
         _clickTimer.Tick += (_, _) =>
@@ -83,6 +99,41 @@ public class TrayIconControl : Control
         };
     }
 
+    private static Guid CreateGuidFromExePath()
+    {
+        string? path = null;
+
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            path = process.MainModule?.FileName;
+        }
+        catch
+        {
+            // игнорируем, пойдём по запасному пути
+        }
+
+        // Запуск через "dotnet app.dll": MainModule указывает на dotnet.exe,
+        // а он общий для всех приложений
+        if (string.IsNullOrEmpty(path) ||
+            Path.GetFileName(path).Equals("dotnet.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            path = Assembly.GetEntryAssembly()?.Location;
+        }
+
+        if (string.IsNullOrEmpty(path))
+        {
+            path = "W.TrayIcon.WPF";
+        }
+
+        using var sha = SHA256.Create();
+        var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(path.ToLowerInvariant()));
+
+        var bytes = new byte[16];
+        Array.Copy(hash, bytes, 16);
+        return new Guid(bytes);
+    }
+    
     /// <summary>
     /// Hovering mouse inside tray icon
     /// </summary>
@@ -124,6 +175,11 @@ public class TrayIconControl : Control
     private void OnInitialized(object? sender, EventArgs e)
     {
         if (DesignerProperties.GetIsInDesignMode(new DependencyObject())) return;
+        
+        Dispatcher.ShutdownStarted += OnDispatcherShutdownStarted;
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;                  // ДОБАВЛЕНО
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;    // ДОБАВЛЕНО
+        
         // создаём скрытое окно‑хост
         _source = new HwndSource(new HwndSourceParameters("HiddenHost")
         {
@@ -152,7 +208,7 @@ public class TrayIconControl : Control
             Application.Current.Exit += OnAppExit;
         }
         
-        _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
+        _taskbarCreatedMsg = NativeMethods.RegisterWindowMessage("TaskbarCreated");
         
         var root = new FrameworkElement();
         _source.RootVisual = root;
@@ -181,7 +237,9 @@ public class TrayIconControl : Control
         if (e.Category is UserPreferenceCategory.General or UserPreferenceCategory.Color)
         {
             // Событие приходит НЕ из UI-потока, а ChangeColors трогает WPF-объекты
-            Dispatcher.BeginInvoke(ChangeColors);
+            // Низкий приоритет: WPF сначала сам переключит ресурсы темы (ThemeMode=System),
+            // потом мы пересчитаем свои цвета, и они не перетрутся более ранним обновлением
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)ChangeColors);
         }
     }
 
@@ -300,18 +358,6 @@ public class TrayIconControl : Control
     public static readonly DependencyProperty DoubleClickCommandProperty =
         DependencyProperty.Register(nameof(DoubleClickCommand), typeof(ICommand), typeof(TrayIconControl));
 
-
-    private bool IsDarkTheme()
-    {
-        using var key = Registry.CurrentUser.OpenSubKey(
-            @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-
-        var value = key?.GetValue("AppsUseLightTheme");
-        if (value is int intValue)
-            return intValue == 0; // 0 = Dark, 1 = Light
-        return false;
-    }
-
     /// <summary>
     /// Заменяет GlobalMouseHook_OnMouseClicked.
     /// Подписка на хук существует только пока меню открыто.
@@ -325,8 +371,8 @@ public class TrayIconControl : Control
  
         // Клик внутри самого меню его не закрывает
         if (PresentationSource.FromVisual(ContextMenu) is HwndSource src &&
-            NativeMethods.GetWindowRect(src.Handle, out RECT rect) &&
-            NativeMethods.GetCursorPos(out POINT pt) &&
+            NativeMethods.GetWindowRect(src.Handle, out var rect) &&
+            NativeMethods.GetCursorPos(out var pt) &&
             pt.x >= rect.Left && pt.x <= rect.Right &&
             pt.y >= rect.Top && pt.y <= rect.Bottom)
         {
@@ -341,18 +387,39 @@ public class TrayIconControl : Control
     /// </summary>
     private void ChangeColors()
     {
-        var isDark = IsDarkTheme();
- 
-        const string bgDarkColor = "#FF2E2E2E";
-        const string bgLightColor = "#FFF8F8F8";
-        const string fgDarkColor = "#FFFFFFFF";
-        const string fgLightColor = "#FF000000";
- 
-        var bg = isDark ? (Color)ColorConverter.ConvertFromString(bgDarkColor) : (Color)ColorConverter.ConvertFromString(bgLightColor);
-        var fg = isDark ? (Color)ColorConverter.ConvertFromString(fgDarkColor) : (Color)ColorConverter.ConvertFromString(fgLightColor);
- 
-        Background = new SolidColorBrush(bg);
-        Foreground = new SolidColorBrush(fg);
+        var isBoundAfter = BindingOperations.IsDataBound(this, BackgroundProperty);
+
+        if (!isBoundAfter)
+        {
+            Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
+        }
+            
+        isBoundAfter = BindingOperations.IsDataBound(this, ForegroundProperty);
+
+        if (!isBoundAfter)
+        {
+            Foreground = Application.Current.TryFindResource("TextFillColorPrimaryBrush") as Brush;
+        }
+        
+        isBoundAfter = BindingOperations.IsDataBound(this, BorderBrushProperty);
+
+        if (!isBoundAfter)
+        {
+            BorderBrush = Application.Current.TryFindResource("ControlElevationBorderBrush") as Brush;
+        }
+        
+        // var isDark = IsDarkTheme();
+        //
+        // const string bgDarkColor = "#FF2E2E2E";
+        // const string bgLightColor = "#FFF8F8F8";
+        // const string fgDarkColor = "#FFFFFFFF";
+        // const string fgLightColor = "#FF000000";
+        //
+        // var bg = isDark ? (Color)ColorConverter.ConvertFromString(bgDarkColor) : (Color)ColorConverter.ConvertFromString(bgLightColor);
+        // var fg = isDark ? (Color)ColorConverter.ConvertFromString(fgDarkColor) : (Color)ColorConverter.ConvertFromString(fgLightColor);
+        //
+        // Background = new SolidColorBrush(bg);
+        // Foreground = new SolidColorBrush(fg);
  
         var wrapper = GetWrapper();
 
@@ -362,8 +429,27 @@ public class TrayIconControl : Control
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
     }
 
+    private void OnProcessExit(object? sender, EventArgs e) => EmergencyRemoveIcon();
+
+    private void OnUnhandledException(object sender, UnhandledExceptionEventArgs e) => EmergencyRemoveIcon();
+
+    /// <summary>
+    /// Аварийное удаление иконки. Эти события могут прийти не из UI-потока,
+    /// поэтому здесь нельзя трогать WPF-объекты (Popup, таймеры, HwndSource).
+    /// Только Shell_NotifyIcon с уже готовой структурой _data.
+    /// </summary>
+    private void EmergencyRemoveIcon()
+    {
+        if (!_isIconShown) return;
+        _isIconShown = false;
+
+        NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref _data);
+    }
+    
     private void OnUnloaded(object sender, RoutedEventArgs e) { }
 
+    private void OnDispatcherShutdownStarted(object? sender, EventArgs e) => Cleanup();
+    
     private void OnOwnerClosed(object? sender, EventArgs e) => Cleanup();
     
     private void OnAppExit(object sender, ExitEventArgs e) => Cleanup();
@@ -391,15 +477,15 @@ public class TrayIconControl : Control
  
         _clickTimer.Stop();
  
-        if (_hWnd != IntPtr.Zero)
-        {
-            NativeMethods.DestroyWindow(_hWnd);
-            _hWnd = IntPtr.Zero;
-        }
+        _source?.Dispose();
+        _source = null;
+        _hWnd = IntPtr.Zero;
 
         if (_ownerWindow == null) return;
         
         _ownerWindow.DataContextChanged -= Window_DataContextChanged;
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;                  // ДОБАВЛЕНО
+        AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;    // ДОБАВЛЕНО
         _ownerWindow.Closed -= OnOwnerClosed;
         _ownerWindow = null;
     }
@@ -446,6 +532,7 @@ public class TrayIconControl : Control
             cbSize = Marshal.SizeOf<NOTIFYICONIDENTIFIER>(),
             hWnd = _hWnd,
             uID = 0,
+            guidItem = _useGuid ? IconGuid : Guid.Empty
         };
  
         if (NativeMethods.Shell_NotifyIconGetRect(ref nii, out var rect) == 0)
@@ -490,17 +577,43 @@ public class TrayIconControl : Control
             }
         }
  
+        IconGuid = IconGuid != Guid.Empty ? IconGuid : CreateGuidFromExePath();
+        _useGuid = true;
+        
         _data = new NOTIFYICONDATA
         {
             uCallbackMessage = (int)EWindowMessages.WM_USER + 1,
             cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
             hWnd = hWnd,
             uID = 0,
-            uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_MESSAGE,
-            hIcon = iconHandle
+            uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_MESSAGE | ETrayIconFlags.NIF_GUID,
+            hIcon = iconHandle,
+            guidItem = IconGuid
         };
  
-        NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref _data);
+        // ДОБАВЛЕНО: удаляем «призрак» от прошлого запуска (если процесс был убит из студии)
+        var stale = new NOTIFYICONDATA
+        {
+            cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+            hWnd = hWnd,
+            uID = 0,
+            uFlags = ETrayIconFlags.NIF_GUID,
+            guidItem = IconGuid
+        };
+        
+        NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref stale);
+        NativeMethods.RefreshTrayArea(); 
+
+        // ИЗМЕНЕНО: если добавление с GUID не удалось (например, сменился путь exe),
+        // повторяем без GUID
+        if (!NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref _data))
+        {
+            Debug.WriteLine($"NIM_ADD with GUID failed, err={Marshal.GetLastWin32Error()}");
+            _useGuid = false;
+            _data.uFlags &= ~ETrayIconFlags.NIF_GUID;
+            _data.guidItem = Guid.Empty;
+            NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref _data);
+        }
         
         _hWnd = GetHandle();
  
@@ -561,7 +674,7 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
  
                     if (IsInnerTaskIcon())
                     {
-                        if (ContextMenu == null || !ContextMenu.IsOpen)
+                        if (ContextMenu is not { IsOpen: true })
                         {
                             if (IsPopupInitialized())
                             {
@@ -581,6 +694,8 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
                     if (ContextMenu?.IsOpen == false)
                     {
                         ClosePopup();
+                        
+                        ContextMenu.PlacementTarget = this;
                         ContextMenu.IsOpen = true;
                     }
                 }
@@ -717,6 +832,9 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
         {
             popup.IsOpen = false;
             popup.Child = null;
+            
+            RemoveLogicalChild(popup);
+            _logicalChildren.Remove(popup);
         }
 
         FrameworkElement? element;
@@ -761,6 +879,7 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
         {
             wrapper.SizeChanged -= Wrapper_SizeChanged;
             wrapper.Child = null;
+            wrapper = null;
         }
 
         wrapper = new Border
@@ -772,15 +891,15 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             Background = Background,
             Padding = Padding,
             Child = element,
-            Margin = new Thickness(10),
-            Effect = new DropShadowEffect
-            {
-                Color = Color.FromArgb(150, 0, 0, 0),
-                BlurRadius = 0.5,
-                ShadowDepth = 0.2,
-                Direction = 250,
-                Opacity = 0.2
-            }
+            Margin = new Thickness(10)
+            // Effect = new DropShadowEffect
+            // {
+            //     Color = Color.FromArgb(150, 0, 0, 0),
+            //     BlurRadius = 0.5,
+            //     ShadowDepth = 0.2,
+            //     Direction = 250,
+            //     Opacity = 0.2
+            // }
         };
 
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
@@ -796,13 +915,15 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             HorizontalOffset = IconPosition.Left,
             VerticalOffset = IconPosition.Top,
             StaysOpen = true,
-            Opacity = 1,
             PopupAnimation = PopupAnimation.Fade,
             AllowsTransparency = true,
             Child = GetWrapper()
         };
 
         SetPopup(popup);
+        
+        _logicalChildren.Add(popup);
+        AddLogicalChild(popup);
 
         if (ContextMenu != null)
         {

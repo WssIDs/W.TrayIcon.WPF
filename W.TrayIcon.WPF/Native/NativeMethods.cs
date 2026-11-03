@@ -66,8 +66,18 @@ public struct NOTIFYICONDATA
     public nint hIcon;
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
     public string szTip;
+    public int dwState;
+    public int dwStateMask;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+    public string szInfo;
+    public int uVersion;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+    public string szInfoTitle;
+    public int dwInfoFlags;
     public Guid guidItem;
+    public nint hBalloonIcon;
 }
+
 [StructLayout(LayoutKind.Sequential)]
 public struct MONITORINFO
 {
@@ -152,7 +162,7 @@ public static class NativeMethods
     [DllImport(ImportLibNames.User32, SetLastError = true)]
     public static extern bool KillTimer(nint hWnd, nint uIDEvent);
 
-    [DllImport(ImportLibNames.Shell32, CharSet = CharSet.Unicode)]
+    [DllImport(ImportLibNames.Shell32, CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool Shell_NotifyIcon(ETrayIconMessage dwMessage, ref NOTIFYICONDATA lpData);
 
     [DllImport(ImportLibNames.User32)]
@@ -196,6 +206,45 @@ public static class NativeMethods
 
         return Rect.Empty;
     }
+    
+    [DllImport(ImportLibNames.User32)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport(ImportLibNames.User32)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>
+    /// Имитирует движение мыши по панели трея, чтобы Explorer убрал «мёртвые» иконки.
+    /// </summary>
+    public static void RefreshTrayArea()
+    {
+        const uint WM_MOUSEMOVE = 0x0200;
+
+        static void Sweep(IntPtr toolbar)
+        {
+            if (toolbar == IntPtr.Zero || !GetClientRect(toolbar, out var rc)) return;
+
+            var y = rc.Bottom / 2;
+            for (var x = 0; x < rc.Right; x += 5)
+            {
+                var lParam = (IntPtr)((y << 16) | (x & 0xFFFF));
+                SendMessage(toolbar, WM_MOUSEMOVE, IntPtr.Zero, lParam);
+            }
+        }
+
+        // Основная панель трея
+        var tray = FindWindow("Shell_TrayWnd", null);
+        var notify = FindWindowEx(tray, IntPtr.Zero, "TrayNotifyWnd", null);
+        var pager = FindWindowEx(notify, IntPtr.Zero, "SysPager", null);
+        Sweep(FindWindowEx(pager, IntPtr.Zero, "ToolbarWindow32", null));
+
+        // Выпадающая панель «скрытые значки»
+        var overflow = FindWindow("NotifyIconOverflowWindow", null);
+        Sweep(FindWindowEx(overflow, IntPtr.Zero, "ToolbarWindow32", null));
+    }
+    
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessage(string lpString);
 }
 
 public static class NativeThemeColorsMethods
