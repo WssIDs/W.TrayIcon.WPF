@@ -916,8 +916,10 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             // }
         };
 
-        wrapper.SetValue(Border.BackgroundProperty, Background);
-        wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
+        // wrapper.SetValue(Border.BackgroundProperty, Background);
+        // wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
+        wrapper.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
+        wrapper.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
 
         wrapper.SizeChanged += Wrapper_SizeChanged;
         
