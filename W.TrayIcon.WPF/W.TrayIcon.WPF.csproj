@@ -16,10 +16,10 @@
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
 		<IncludeSymbols>True</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
-		<FileVersion>1.0.12</FileVersion>
-		<AssemblyVersion>1.0.12</AssemblyVersion>
-		<Version>1.0.12</Version>
-		<ProductVersion>1.0.12</ProductVersion>
+		<FileVersion>1.0.13</FileVersion>
+		<AssemblyVersion>1.0.13</AssemblyVersion>
+		<Version>1.0.13</Version>
+		<ProductVersion>1.0.13</ProductVersion>
 		<Authors>WssIDs</Authors>
 		<PackageIcon>wTrayIcon_sm.png</PackageIcon>
 		<ApplicationIcon>wTrayIcon.ico</ApplicationIcon>
@@ -27,7 +27,7 @@
 		<RepositoryType>git</RepositoryType>
 		<RepositoryUrl>https://github.com/WssIDs/W.TrayIcon.WPF</RepositoryUrl>
 		<PackageTags>TrayIcon</PackageTags>
-		<PackageReleaseNotes>Fixed a global issue that caused freezes and lags. In some cases, the tray tooltip would not appear</PackageReleaseNotes>
+		<PackageReleaseNotes>Added Window Theme support</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
