@@ -39,14 +39,21 @@ public class TrayIconControl : Control
     private bool _isHovering;
 
     private NOTIFYICONDATA _data;
-
-    // [НОВОЕ, п.3] Единственный таймер наведения. Работает только пока курсор над иконкой.
+    
     private readonly DispatcherTimer _hoverWatch = new() { Interval = TimeSpan.FromMilliseconds(100) };
-
-    // [НОВОЕ, п.5] Защита от повторного ShowIcon / HideIcon
+    
     private bool _isIconShown;
 
     private System.Drawing.Icon? _trayIcon;
+    
+    private uint _taskbarCreatedMsg;
+    
+    private Window? _ownerWindow;
+        
+    private bool _isCleanedUp;
+     
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string lpString);
 
     public TrayIconControl()
     {
@@ -135,8 +142,18 @@ public class TrayIconControl : Control
         if (wnd != null)
         {
             wnd.DataContextChanged += Window_DataContextChanged;
+            
+            _ownerWindow = wnd;
+            wnd.Closed += OnOwnerClosed;
         }
 
+        if (Application.Current != null)
+        {
+            Application.Current.Exit += OnAppExit;
+        }
+        
+        _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
+        
         var root = new FrameworkElement();
         _source.RootVisual = root;
 
@@ -302,20 +319,20 @@ public class TrayIconControl : Control
     private void OnGlobalClick(Native.MouseEventArgs mouseEventArgs)
     {
         if (ContextMenu is not { IsOpen: true }) return;
-
+ 
         // Правый клик по самой иконке обрабатывает WndProc (WM_RBUTTONDOWN)
         if (IsHovering() && mouseEventArgs.MouseEvent == EMouseEvent.RightMouseButtonDown) return;
-
+ 
         // Клик внутри самого меню его не закрывает
         if (PresentationSource.FromVisual(ContextMenu) is HwndSource src &&
-            NativeMethods.GetWindowRect(src.Handle, out var rect) &&
-            NativeMethods.GetCursorPos(out var pt) &&
+            NativeMethods.GetWindowRect(src.Handle, out RECT rect) &&
+            NativeMethods.GetCursorPos(out POINT pt) &&
             pt.x >= rect.Left && pt.x <= rect.Right &&
             pt.y >= rect.Top && pt.y <= rect.Bottom)
         {
             return;
         }
-
+ 
         ContextMenu.IsOpen = false;
     }
 
@@ -325,78 +342,95 @@ public class TrayIconControl : Control
     private void ChangeColors()
     {
         var isDark = IsDarkTheme();
-
+ 
         const string bgDarkColor = "#FF2E2E2E";
         const string bgLightColor = "#FFF8F8F8";
         const string fgDarkColor = "#FFFFFFFF";
         const string fgLightColor = "#FF000000";
-
-        var bg = isDark
-            ? (Color)ColorConverter.ConvertFromString(bgDarkColor)
-            : (Color)ColorConverter.ConvertFromString(bgLightColor);
-        var fg = isDark
-            ? (Color)ColorConverter.ConvertFromString(fgDarkColor)
-            : (Color)ColorConverter.ConvertFromString(fgLightColor);
-
+ 
+        var bg = isDark ? (Color)ColorConverter.ConvertFromString(bgDarkColor) : (Color)ColorConverter.ConvertFromString(bgLightColor);
+        var fg = isDark ? (Color)ColorConverter.ConvertFromString(fgDarkColor) : (Color)ColorConverter.ConvertFromString(fgLightColor);
+ 
         Background = new SolidColorBrush(bg);
         Foreground = new SolidColorBrush(fg);
-
+ 
         var wrapper = GetWrapper();
 
         if (wrapper == null) return;
-
+        
         wrapper.Background = Background;
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e)
+    private void OnUnloaded(object sender, RoutedEventArgs e) { }
+
+    private void OnOwnerClosed(object? sender, EventArgs e) => Cleanup();
+    
+    private void OnAppExit(object sender, ExitEventArgs e) => Cleanup();
+    
+    private void Cleanup()
     {
+        if (_isCleanedUp) return;
+        _isCleanedUp = true;
+ 
         HideIcon();
         Initialized -= OnInitialized;
-
+ 
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
-
+ 
+        if (Application.Current != null)
+        {
+            Application.Current.Exit -= OnAppExit;
+        }
+ 
         if (ContextMenu != null)
         {
             ContextMenu.Opened -= ContextMenu_Opened;
             ContextMenu.Closed -= ContextMenu_Closed;
         }
-
+ 
         _clickTimer.Stop();
-
+ 
         if (_hWnd != IntPtr.Zero)
         {
             NativeMethods.DestroyWindow(_hWnd);
+            _hWnd = IntPtr.Zero;
         }
 
-        var wnd = GetWindow();
-
-        if (wnd != null)
+        if (_ownerWindow == null) return;
+        
+        _ownerWindow.DataContextChanged -= Window_DataContextChanged;
+        _ownerWindow.Closed -= OnOwnerClosed;
+        _ownerWindow = null;
+    }
+    
+    private void Wrapper_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_popup is { IsOpen: true })
         {
-            wnd.DataContextChanged -= Window_DataContextChanged;
+            PositionPopup();
         }
     }
-
+    
     private void HideIcon()
     {
         if (!_isIconShown) return;
         _isIconShown = false;
-
+ 
         _hoverWatch.Stop();
         SetIsHovering(false);
         ClosePopup();
-
+ 
         _hook.Stop();
         _hook.OnMouseClicked -= OnGlobalClick;
-
+ 
         _hWnd = GetHandle();
-
+ 
         var source = HwndSource.FromHwnd(_hWnd);
         source?.RemoveHook(WndProc);
-
+ 
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref _data);
-
-        // Освобождаем handle иконки после удаления из трея
+        
         _trayIcon?.Dispose();
         _trayIcon = null;
     }
@@ -413,7 +447,7 @@ public class TrayIconControl : Control
             hWnd = _hWnd,
             uID = 0,
         };
-
+ 
         if (NativeMethods.Shell_NotifyIconGetRect(ref nii, out var rect) == 0)
         {
             IconPosition = rect;
@@ -426,13 +460,11 @@ public class TrayIconControl : Control
     /// <param name="hWnd"></param>
     private void ShowIcon(IntPtr hWnd)
     {
-        // Повторный вызов больше не плодит хуки, таймеры и подписки
         if (_isIconShown) return;
         _isIconShown = true;
-
+ 
         var iconHandle = IntPtr.Zero;
-
-        // Icon сохраняется в поле, чтобы handle жил, пока иконка в трее
+        
         if (Icon != null)
         {
             _trayIcon = IconHelper.GetIconFromImageSource(Icon, 32);
@@ -441,15 +473,15 @@ public class TrayIconControl : Control
         else
         {
             var module = Process.GetCurrentProcess().MainModule;
-
+ 
             if (module != null)
             {
                 var exePath = module.FileName;
-
+ 
                 if (!string.IsNullOrEmpty(exePath))
                 {
                     _trayIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
-
+ 
                     if (_trayIcon != null)
                     {
                         iconHandle = _trayIcon.Handle;
@@ -457,7 +489,7 @@ public class TrayIconControl : Control
                 }
             }
         }
-
+ 
         _data = new NOTIFYICONDATA
         {
             uCallbackMessage = (int)EWindowMessages.WM_USER + 1,
@@ -467,11 +499,11 @@ public class TrayIconControl : Control
             uFlags = ETrayIconFlags.NIF_ICON | ETrayIconFlags.NIF_MESSAGE,
             hIcon = iconHandle
         };
-
+ 
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref _data);
-
+        
         _hWnd = GetHandle();
-
+ 
         var source = HwndSource.FromHwnd(_hWnd);
         source?.AddHook(WndProc);
     }
@@ -486,37 +518,47 @@ public class TrayIconControl : Control
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         var menu = sender as ContextMenu;
-
+ 
         var animation = new DoubleAnimation
         {
             From = 0,
             To = 1,
             Duration = TimeSpan.FromMilliseconds(200)
         };
-
+ 
         menu?.BeginAnimation(OpacityProperty, animation);
-
+ 
         _hook.OnMouseClicked -= OnGlobalClick;
         _hook.OnMouseClicked += OnGlobalClick;
         _hook.Start();
     }
 
-    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        if ((EWindowMessages)msg != EWindowMessages.WM_USER + 1) return IntPtr.Zero; // наш callback
-        var windowMessage = (EWindowMessages)lParam.ToInt32();
+        if (_taskbarCreatedMsg != 0 && (uint)msg == _taskbarCreatedMsg)
+        {
+            if (!_isIconShown) return IntPtr.Zero;
+            
+            NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref _data);
+            NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_ADD, ref _data);
 
+            return IntPtr.Zero;
+        }
+
+        if ((EWindowMessages)msg != EWindowMessages.WM_USER + 1) return IntPtr.Zero; // наш callback
+        
+        var windowMessage = (EWindowMessages)lParam.ToInt32();
+ 
         switch (windowMessage)
         {
             case EWindowMessages.WM_MOUSEMOVE:
-
-                // Всё тяжёлое делается один раз при входе курсора
+                
                 if (!IsHovering())
                 {
                     SetIsHovering(true);
                     UpdateIconRect();
                     _hoverWatch.Start();
-
+ 
                     if (IsInnerTaskIcon())
                     {
                         if (ContextMenu == null || !ContextMenu.IsOpen)
@@ -528,7 +570,7 @@ public class TrayIconControl : Control
                         }
                     }
                 }
-
+ 
                 break;
             case EWindowMessages.WM_RBUTTONUP:
                 break;
@@ -542,7 +584,7 @@ public class TrayIconControl : Control
                         ContextMenu.IsOpen = true;
                     }
                 }
-
+ 
                 RightClickCommand?.Execute(null);
                 break;
             case EWindowMessages.WM_LBUTTONUP:
@@ -553,7 +595,7 @@ public class TrayIconControl : Control
                 break;
             case EWindowMessages.WM_LBUTTONDBLCLK:
                 HideContextMenu();
-
+ 
                 _clickTimer.Stop();
                 DoubleClickCommand?.Execute(null);
                 break;
@@ -589,7 +631,7 @@ public class TrayIconControl : Control
     /// </summary>
     private bool IsInnerTaskIcon()
     {
-        if (!NativeMethods.GetCursorPos(out POINT pt)) return false;
+        if (!NativeMethods.GetCursorPos(out var pt)) return false;
 
         return pt.x >= IconPosition.Left &&
                pt.x <= IconPosition.Right &&
@@ -605,30 +647,30 @@ public class TrayIconControl : Control
     private void PositionPopup()
     {
         if (_popup?.Child is not FrameworkElement child) return;
-
+ 
         child.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var desired = child.DesiredSize;
-
+ 
         TrayIconStatics.CalculateDpi();
         var scale = TrayIconStatics.DpiScale;
-
+ 
         var iconCenter = IconPosition.Left + (IconPosition.Right - IconPosition.Left) / 2;
         var iconCenterDpi = iconCenter * scale;
-
+ 
         var popupWidth = desired.Width - child.Margin.Left - child.Margin.Right;
         var popupHeight = desired.Height - child.Margin.Top - child.Margin.Bottom;
         var popupPosition = iconCenterDpi - popupWidth / 2;
-
+ 
         var rect = NativeMethods.GetPrimaryWorkArea();
-
+ 
         if (iconCenterDpi + popupWidth / 2 > rect.Right)
         {
             popupPosition = rect.Right - popupWidth;
         }
-
+ 
         const int offset = 12;
         var iconPositionTop = (IconPosition.Top * scale) - offset;
-
+ 
         _popup.HorizontalOffset = popupPosition;
         _popup.VerticalOffset = iconPositionTop - popupHeight;
     }
@@ -640,14 +682,14 @@ public class TrayIconControl : Control
     private async Task OnTrayMouseEnter()
     {
         var popup = GetPopup();
-
+ 
         if (popup == null || popup.IsOpen) return;
-
+ 
         await Task.Delay(500);
-
+ 
         if (!IsHovering()) return;
         if (ContextMenu is { IsOpen: true }) return;
-
+ 
         PositionPopup();
         popup.IsOpen = true;
     }
@@ -658,7 +700,7 @@ public class TrayIconControl : Control
     private void ClosePopup()
     {
         var popup = GetPopup();
-
+ 
         if (popup is { IsOpen: true })
         {
             popup.IsOpen = false;
@@ -673,6 +715,7 @@ public class TrayIconControl : Control
 
         if (popup != null)
         {
+            popup.IsOpen = false;
             popup.Child = null;
         }
 
@@ -716,6 +759,7 @@ public class TrayIconControl : Control
 
         if (wrapper != null)
         {
+            wrapper.SizeChanged -= Wrapper_SizeChanged;
             wrapper.Child = null;
         }
 
@@ -741,6 +785,8 @@ public class TrayIconControl : Control
 
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
 
+        wrapper.SizeChanged += Wrapper_SizeChanged;
+        
         SetWrapper(wrapper);
 
         popup = new Popup
