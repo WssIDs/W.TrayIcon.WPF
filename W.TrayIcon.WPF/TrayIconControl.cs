@@ -367,7 +367,11 @@ public class TrayIconControl : Control
         if (ContextMenu is not { IsOpen: true }) return;
  
         // Правый клик по самой иконке обрабатывает WndProc (WM_RBUTTONDOWN)
-        if (IsHovering() && mouseEventArgs.MouseEvent == EMouseEvent.RightMouseButtonDown) return;
+        if (IsHovering() && mouseEventArgs.MouseEvent == EMouseEvent.RightMouseButtonDown)
+        {
+            UpdateIconRect();               // свежий rect, а не кэш
+            if (IsInnerTaskIcon()) return;  // клик по иконке обработает WndProc
+        }
  
         // Клик внутри самого меню его не закрывает
         if (PresentationSource.FromVisual(ContextMenu) is HwndSource src &&
@@ -623,6 +627,8 @@ public class TrayIconControl : Control
 
     private void ContextMenu_Closed(object sender, RoutedEventArgs e)
     {
+        NativeMethods.PostMessage(_hWnd, NativeMethods.WM_NULL, IntPtr.Zero, IntPtr.Zero);
+
         _hook.OnMouseClicked -= OnGlobalClick;
         _hook.Stop();
     }
@@ -688,16 +694,21 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             case EWindowMessages.WM_RBUTTONUP:
                 break;
             case EWindowMessages.WM_RBUTTONDOWN:
+                ClosePopup();
                 if (ContextMenu != null)
                 {
                     ContextMenu.IsOpen = false;
-                    if (ContextMenu?.IsOpen == false)
+
+                    NativeMethods.SetForegroundWindow(_hWnd);   // делаем процесс активным
+
+                    ContextMenu.Placement = PlacementMode.MousePoint;   // не зависеть от скрытого окна
+                    ContextMenu.PlacementTarget = this;
+
+                    Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
                     {
-                        ClosePopup();
-                        
-                        ContextMenu.PlacementTarget = this;
-                        ContextMenu.IsOpen = true;
-                    }
+                        if (ContextMenu is { IsOpen: false })
+                            ContextMenu.IsOpen = true;
+                    });
                 }
  
                 RightClickCommand?.Execute(null);

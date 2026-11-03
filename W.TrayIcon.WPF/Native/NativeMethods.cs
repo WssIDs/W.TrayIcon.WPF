@@ -243,8 +243,16 @@ public static class NativeMethods
         Sweep(FindWindowEx(overflow, IntPtr.Zero, "ToolbarWindow32", null));
     }
     
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(ImportLibNames.User32, CharSet = CharSet.Unicode)]
     public static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport(ImportLibNames.User32)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport(ImportLibNames.User32)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint WM_NULL = 0x0000;
 }
 
 public static class NativeThemeColorsMethods
