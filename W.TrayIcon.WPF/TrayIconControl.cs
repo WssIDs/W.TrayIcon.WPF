@@ -591,17 +591,17 @@ public class TrayIconControl : Control
             guidItem = IconGuid
         };
  
-        // ДОБАВЛЕНО: удаляем «призрак» от прошлого запуска (если процесс был убит из студии)
-        var stale = new NOTIFYICONDATA
-        {
-            cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-            hWnd = hWnd,
-            uID = 0,
-            uFlags = ETrayIconFlags.NIF_GUID,
-            guidItem = IconGuid
-        };
+        // // ДОБАВЛЕНО: удаляем «призрак» от прошлого запуска (если процесс был убит из студии)
+        // var stale = new NOTIFYICONDATA
+        // {
+        //     cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+        //     hWnd = hWnd,
+        //     uID = 0,
+        //     uFlags = ETrayIconFlags.NIF_GUID,
+        //     guidItem = IconGuid
+        // };
         
-        NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref stale);
+        //NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref stale);
         NativeMethods.RefreshTrayArea(); 
 
         // ИЗМЕНЕНО: если добавление с GUID не удалось (например, сменился путь exe),
