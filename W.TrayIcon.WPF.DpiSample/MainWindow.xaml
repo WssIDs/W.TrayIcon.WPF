@@ -26,5 +26,9 @@
                 </ContextMenu>
             </w:TrayIconControl.ContextMenu>
         </w:TrayIconControl>
+
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Orientation="Horizontal">
+            <Button Content="Сменить тему" Click="Button_Click"/>
+        </StackPanel>
     </Grid>
 </Window>

@@ -77,6 +77,10 @@ public class TrayIconControl : Control
 
         Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
         Foreground = Application.Current.TryFindResource("TextFillColorPrimaryBrush") as Brush;
+
+        this.SetResourceReference(BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
+        this.SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
+
         // Default padding
         Padding = new Thickness(10, 8, 10, 8);
         BorderThickness = new Thickness(0.2);
@@ -391,11 +395,21 @@ public class TrayIconControl : Control
     /// </summary>
     private void ChangeColors()
     {
+        var wrapper = GetWrapper();
+
+        if (wrapper == null) return;
+
+
         var isBoundAfter = BindingOperations.IsDataBound(this, BackgroundProperty);
 
         if (!isBoundAfter)
         {
             Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
+            wrapper.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
+        }
+        else
+        {
+            wrapper.Background = Background;
         }
             
         isBoundAfter = BindingOperations.IsDataBound(this, ForegroundProperty);
@@ -403,6 +417,11 @@ public class TrayIconControl : Control
         if (!isBoundAfter)
         {
             Foreground = Application.Current.TryFindResource("TextFillColorPrimaryBrush") as Brush;
+            wrapper.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        }
+        else
+        {
+            wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
         }
         
         isBoundAfter = BindingOperations.IsDataBound(this, BorderBrushProperty);
@@ -410,27 +429,12 @@ public class TrayIconControl : Control
         if (!isBoundAfter)
         {
             BorderBrush = Application.Current.TryFindResource("ControlElevationBorderBrush") as Brush;
+            wrapper.SetResourceReference(Border.BorderBrushProperty, "ControlElevationBorderBrush");
         }
-        
-        // var isDark = IsDarkTheme();
-        //
-        // const string bgDarkColor = "#FF2E2E2E";
-        // const string bgLightColor = "#FFF8F8F8";
-        // const string fgDarkColor = "#FFFFFFFF";
-        // const string fgLightColor = "#FF000000";
-        //
-        // var bg = isDark ? (Color)ColorConverter.ConvertFromString(bgDarkColor) : (Color)ColorConverter.ConvertFromString(bgLightColor);
-        // var fg = isDark ? (Color)ColorConverter.ConvertFromString(fgDarkColor) : (Color)ColorConverter.ConvertFromString(fgLightColor);
-        //
-        // Background = new SolidColorBrush(bg);
-        // Foreground = new SolidColorBrush(fg);
- 
-        var wrapper = GetWrapper();
+        else
+        {
 
-        if (wrapper == null) return;
-        
-        wrapper.Background = Background;
-        wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
+        }
     }
 
     private void OnProcessExit(object? sender, EventArgs e) => EmergencyRemoveIcon();
@@ -899,7 +903,6 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             BorderBrush = BorderBrush,
             DataContext = DataContext,
             CornerRadius = CornerRadius,
-            Background = Background,
             Padding = Padding,
             Child = element,
             Margin = new Thickness(10)
@@ -913,6 +916,7 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             // }
         };
 
+        wrapper.SetValue(Border.BackgroundProperty, Background);
         wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
 
         wrapper.SizeChanged += Wrapper_SizeChanged;
