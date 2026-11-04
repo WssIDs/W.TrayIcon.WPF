@@ -27,7 +27,7 @@
 		<RepositoryType>git</RepositoryType>
 		<RepositoryUrl>https://github.com/WssIDs/W.TrayIcon.WPF</RepositoryUrl>
 		<PackageTags>TrayIcon</PackageTags>
-		<PackageReleaseNotes></PackageReleaseNotes>
+		<PackageReleaseNotes>Fix resource utilization. Background color as windows default</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">

@@ -15,6 +15,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using W.TrayIcon.WPF.Helpers;
 using W.TrayIcon.WPF.Native;
@@ -25,8 +26,10 @@ namespace W.TrayIcon.WPF;
 /// <summary>
 /// 
 /// </summary>
-public class TrayIconControl : Control
+public class TrayIconControl : Control, IDisposable
 {
+    private bool _isDisposed;
+    
     private IntPtr _hWnd = IntPtr.Zero;
 
     private readonly GlobalMouseHook _hook = new();
@@ -69,22 +72,27 @@ public class TrayIconControl : Control
     public Guid IconGuid { get; set; } = Guid.Empty;
 
     private bool _useGuid;
-    
+
+    private const string BackgroundResourceName = "SolidBackgroundFillColorQuarternaryBrush";
+    private const string ForegroundResourceName = "SolidForegroundFillColorQuarternaryBrush";
+    private const string BorderBrushResourceName = "SurfaceStrokeColorDefaultBrush";
+
     public TrayIconControl()
     {
         Initialized += OnInitialized;
         Unloaded += OnUnloaded;
 
-        Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
+        Background = Application.Current.TryFindResource(BackgroundResourceName) as Brush;
         Foreground = Application.Current.TryFindResource("TextFillColorPrimaryBrush") as Brush;
-
-        this.SetResourceReference(BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
-        this.SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
+        BorderBrush = Application.Current.TryFindResource(BorderBrushResourceName) as Brush;
+        
+        SetResourceReference(BackgroundProperty, BackgroundResourceName);
+        SetResourceReference(BorderBrushProperty, BorderBrushResourceName);
+        SetResourceReference(ForegroundProperty, "TextFillColorPrimaryBrush");
 
         // Default padding
         Padding = new Thickness(10, 8, 10, 8);
-        BorderThickness = new Thickness(0.2);
-        BorderBrush = Application.Current.TryFindResource("ControlElevationBorderBrush") as Brush;
+        BorderThickness = new Thickness(0.5);
 
         _clickTimer.Interval = TimeSpan.FromMilliseconds(NativeMethods.GetDoubleClickTime());
         _clickTimer.Tick += (_, _) =>
@@ -103,6 +111,23 @@ public class TrayIconControl : Control
         };
     }
 
+    private bool IsDesignTime()
+    {
+        if (DesignerProperties.GetIsInDesignMode(this)) return true;
+        if (LicenseManager.UsageMode == LicenseUsageMode.Designtime) return true;
+
+        try
+        {
+            using var p = Process.GetCurrentProcess();
+            var name = p.ProcessName;
+            return name.Equals("XDesProc", StringComparison.OrdinalIgnoreCase)
+                   || name.Equals("devenv", StringComparison.OrdinalIgnoreCase)
+                   || name.StartsWith("Blend", StringComparison.OrdinalIgnoreCase)
+                   || name.Equals("DesignToolsServer", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+    
     private static Guid CreateGuidFromExePath()
     {
         string? path = null;
@@ -178,7 +203,7 @@ public class TrayIconControl : Control
 
     private void OnInitialized(object? sender, EventArgs e)
     {
-        if (DesignerProperties.GetIsInDesignMode(new DependencyObject())) return;
+        if (IsDesignTime()) return;
         
         Dispatcher.ShutdownStarted += OnDispatcherShutdownStarted;
         AppDomain.CurrentDomain.ProcessExit += OnProcessExit;                  // ДОБАВЛЕНО
@@ -404,8 +429,8 @@ public class TrayIconControl : Control
 
         if (!isBoundAfter)
         {
-            Background = Application.Current.TryFindResource("SolidBackgroundFillColorBaseBrush") as Brush;
-            wrapper.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
+            Background = Application.Current.TryFindResource(BackgroundResourceName) as Brush;
+            wrapper.SetResourceReference(Border.BackgroundProperty, BackgroundResourceName);
         }
         else
         {
@@ -428,8 +453,8 @@ public class TrayIconControl : Control
 
         if (!isBoundAfter)
         {
-            BorderBrush = Application.Current.TryFindResource("ControlElevationBorderBrush") as Brush;
-            wrapper.SetResourceReference(Border.BorderBrushProperty, "ControlElevationBorderBrush");
+            BorderBrush = Application.Current.TryFindResource(BorderBrushResourceName) as Brush;
+            wrapper.SetResourceReference(Border.BorderBrushProperty, BorderBrushResourceName);
         }
         else
         {
@@ -453,14 +478,19 @@ public class TrayIconControl : Control
 
         NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref _data);
     }
-    
-    private void OnUnloaded(object sender, RoutedEventArgs e) { }
 
-    private void OnDispatcherShutdownStarted(object? sender, EventArgs e) => Cleanup();
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        // В рантайме Unloaded может прийти при смене вкладки/темы, поэтому
+        // чистим только если окно-владелец уже закрыто или это не рантайм
+        if (_ownerWindow is not { IsLoaded: true }) Dispose();
+    }
+
+    private void OnDispatcherShutdownStarted(object? sender, EventArgs e) => Dispose();
     
-    private void OnOwnerClosed(object? sender, EventArgs e) => Cleanup();
+    private void OnOwnerClosed(object? sender, EventArgs e) => Dispose();
     
-    private void OnAppExit(object sender, ExitEventArgs e) => Cleanup();
+    private void OnAppExit(object sender, ExitEventArgs e) => Dispose();
     
     private void Cleanup()
     {
@@ -469,9 +499,15 @@ public class TrayIconControl : Control
  
         HideIcon();
         Initialized -= OnInitialized;
+        Unloaded -= OnUnloaded;
  
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
  
+        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;
+        AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;
+        
+        Dispatcher.ShutdownStarted -= OnDispatcherShutdownStarted;
+        
         if (Application.Current != null)
         {
             Application.Current.Exit -= OnAppExit;
@@ -484,18 +520,36 @@ public class TrayIconControl : Control
         }
  
         _clickTimer.Stop();
+        
+        _hoverWatch.Stop();
+        _hook.Stop();
  
+        if (_popup != null)
+        {
+            _popup.IsOpen = false;
+            _popup.Child = null;
+            RemoveLogicalChild(_popup);
+            _logicalChildren.Remove(_popup);
+            _popup = null;
+        }
+        
+        if (_wrapper != null)
+        {
+            _wrapper.SizeChanged -= Wrapper_SizeChanged;
+            _wrapper.Child = null;
+            _wrapper = null;
+        }
+        
+        if (_ownerWindow != null)
+        {
+            _ownerWindow.DataContextChanged -= Window_DataContextChanged;
+            _ownerWindow.Closed -= OnOwnerClosed;
+            _ownerWindow = null;
+        }
+        
         _source?.Dispose();
         _source = null;
         _hWnd = IntPtr.Zero;
-
-        if (_ownerWindow == null) return;
-        
-        _ownerWindow.DataContextChanged -= Window_DataContextChanged;
-        AppDomain.CurrentDomain.ProcessExit -= OnProcessExit;                  // ДОБАВЛЕНО
-        AppDomain.CurrentDomain.UnhandledException -= OnUnhandledException;    // ДОБАВЛЕНО
-        _ownerWindow.Closed -= OnOwnerClosed;
-        _ownerWindow = null;
     }
     
     private void Wrapper_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -555,7 +609,7 @@ public class TrayIconControl : Control
     /// <param name="hWnd"></param>
     private void ShowIcon(IntPtr hWnd)
     {
-        if (_isIconShown) return;
+        if (_isIconShown || IsDesignTime()) return;
         _isIconShown = true;
  
         var iconHandle = IntPtr.Zero;
@@ -599,17 +653,16 @@ public class TrayIconControl : Control
             guidItem = IconGuid
         };
  
-        // // ДОБАВЛЕНО: удаляем «призрак» от прошлого запуска (если процесс был убит из студии)
-        // var stale = new NOTIFYICONDATA
-        // {
-        //     cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-        //     hWnd = hWnd,
-        //     uID = 0,
-        //     uFlags = ETrayIconFlags.NIF_GUID,
-        //     guidItem = IconGuid
-        // };
-        
-        //NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref stale);
+        // ДОБАВЛЕНО: удаляем «призрак» от прошлого запуска (если процесс был убит из студии)
+        var stale = new NOTIFYICONDATA
+        {
+            cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
+            hWnd = hWnd,
+            uID = 0,
+            uFlags = ETrayIconFlags.NIF_GUID,
+            guidItem = IconGuid
+        };
+        NativeMethods.Shell_NotifyIcon(ETrayIconMessage.NIM_DELETE, ref stale);
         NativeMethods.RefreshTrayArea(); 
 
         // ИЗМЕНЕНО: если добавление с GUID не удалось (например, сменился путь exe),
@@ -905,22 +958,21 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
             CornerRadius = CornerRadius,
             Padding = Padding,
             Child = element,
-            Margin = new Thickness(10)
-            // Effect = new DropShadowEffect
-            // {
-            //     Color = Color.FromArgb(150, 0, 0, 0),
-            //     BlurRadius = 0.5,
-            //     ShadowDepth = 0.2,
-            //     Direction = 250,
-            //     Opacity = 0.2
-            // }
+            Margin = new Thickness(10),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromArgb(150, 0, 0, 0),
+                BlurRadius = 0.5,
+                ShadowDepth = 0.2,
+                Direction = 250,
+                Opacity = 0.2
+            }
         };
-
-        // wrapper.SetValue(Border.BackgroundProperty, Background);
-        // wrapper.SetValue(TextElement.ForegroundProperty, Foreground);
-        wrapper.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorBaseBrush");
+        
+        wrapper.SetResourceReference(Border.BackgroundProperty, BackgroundResourceName);
         wrapper.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
-
+        wrapper.SetResourceReference(Border.BorderBrushProperty, BorderBrushResourceName);
+        
         wrapper.SizeChanged += Wrapper_SizeChanged;
         
         SetWrapper(wrapper);
@@ -960,4 +1012,36 @@ private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref b
     {
         return _hWnd;
     }
+    
+    #region IDisposable Support
+    
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+
+        if (disposing)
+        {
+            // Полная очистка должна идти в UI-потоке
+            if (Dispatcher.CheckAccess())
+                Cleanup();
+            else
+                Dispatcher.Invoke(Cleanup);
+        }
+        else
+        {
+            // Финализатор: другой поток, WPF-объекты трогать нельзя
+            EmergencyRemoveIcon();
+        }
+    }
+
+    ~TrayIconControl() => Dispose(false);    
+    
+    #endregion
 }
